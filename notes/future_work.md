@@ -1,0 +1,11 @@
+- Temporal Crack Progression Tracking
+  - Calculating the rate of crack growth and keep an eye on them
+- Integrating onto a 3D model of the bridge (Building Information Modeling//)
+  - To assess structural risk and load-bearing emergencies 
+- Multi-class defects
+  - Flaking
+  - Exposed rebar
+  - Rust
+  - Water damage
+- Edge Computing
+  - When detecting a crack, drone flies in closer to take high-res photos, then resumes on it's route
