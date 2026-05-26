@@ -4,6 +4,8 @@ Pixel-level semantic segmentation for bridge surface cracks.
 
 **Poster:** [Automated Bridge Surface Crack Detection using UAV Imagery and Deep Learning Segmentation](references/bridge_crack_detection_poster_final.pdf) — AI Student Symposium 2026
 
+**Model weights:** [ishaan1402/bridge_crack_detection_U-Net](https://huggingface.co/ishaan1402/bridge_crack_detection_U-Net) on Hugging Face
+
 ---
 
 ## SparkNotes
