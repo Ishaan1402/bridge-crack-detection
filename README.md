@@ -12,14 +12,14 @@ Automated crack detection from high-resolution UAV bridge imagery; powered by U-
 
 **Problem:** Bridge inspections are slow, dangerous, expensive, and require lane closures or scaffolding. Inspectors need to locate thin cracks in thousands of square feet of concrete. High-res drone images (4K/8K) normally exceed GPU memory limits if fed directly, while downsampling destroys detail in said images.
 
-**What this does:** Sliding window inference tiles high-res imagery, runs U-Net segmentation on overlapping patches, and blends them using a 2D Gaussian weight map. This application tracks cracked-area ratio, compiles local density heatmaps, and serves predictions via a FastAPI endpoint.
+**What this does:** Outputs clean pixel-level segmentation masks of cracks from high-res UAV bridge photos. Sliding window inference tiles high-res imagery, runs U-Net segmentation on overlapping patches, and blends them using a 2D Gaussian weight map. This application also tracks cracked-area ratio, compiles local density heatmaps, and serves predictions via a FastAPI endpoint.
 
 **Results (test set, 48 images, 448×448 Kaggle tiles):**
 
 | Model                                                | Recall    | Precision | Dice     | IoU      |
 | ---------------------------------------------------- | --------- | --------- | -------- | -------- |
-| [Baseline](baseline.ipynb) —   | 0.78      | 0.073     | 0.13     | 0.07     |
-| [U-Net](unet.ipynb)   | **0.823** | **0.586** | **0.68** | **0.52** |
+| [Baseline](baseline.ipynb)     | 0.78      | 0.073     | 0.13     | 0.07     |
+| [U-Net](src/models/unet.py)   | **0.823** | **0.586** | **0.68** | **0.52** |
 
 The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline).
 
