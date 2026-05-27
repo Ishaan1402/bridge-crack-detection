@@ -25,9 +25,8 @@ The Random Forest baseline is noisy and is notoriously prone to false positives 
 
 ---
 
-## Workspace Structure
+## Repo Structure
 
-The project has been restructured into a modular Python package:
 ```text
 bridge_crack_detection/
 ├── config/              # YAML configs
