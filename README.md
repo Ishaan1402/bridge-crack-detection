@@ -8,17 +8,17 @@ Automated crack detection from high-resolution UAV bridge imagery; powered by U-
 
 ## Demo
 
-### Inference Demo
+### Inference
 
+![Bridge crack detection: original photo, green segmentation mask, and JET density heatmap](assets/images/overlay_example.jpg)
 
+**Input | crack mask | density heatmap** 
 
-**Input | crack mask | density heatmap**
+### Evaluation against test set
 
-### Evaluation against Test Set
+![Test set evaluation: original bridge images, ground truth masks, and U-Net predictions](assets/images/binary_example.png)
 
-
-
-**Original | ground truth | prediction**
+**Original | ground truth | prediction** 
 
 ---
 
@@ -28,7 +28,7 @@ Automated crack detection from high-resolution UAV bridge imagery; powered by U-
 
 **What this does:** Outputs clean pixel-level segmentation masks of cracks from high-res UAV bridge photos. Sliding window inference tiles high-res imagery, runs U-Net segmentation on overlapping patches, and blends them using a 2D Gaussian weight map. This application also tracks cracked-area ratio, compiles local density heatmaps, and serves predictions via a FastAPI endpoint.
 
-**Results (test set, 48 images, 448×448 Kaggle tiles):**
+**Results (test set, 58 images, 448×448):**
 
 
 | Model                       | Recall    | Precision | Dice     | IoU      |
@@ -37,7 +37,7 @@ Automated crack detection from high-resolution UAV bridge imagery; powered by U-
 | [U-Net](src/models/unet.py) | **0.823** | **0.586** | **0.68** | **0.52** |
 
 
-The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline). See the [evaluation grid](#test-set-evaluation) above for side-by-side predictions.
+The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline). See the [evaluation grid](#evaluation-against-test-set) above for side-by-side predictions.
 
 ---
 
