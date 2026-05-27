@@ -1,3 +1,4 @@
+- MORE DATA for training
 - Temporal Crack Progression Tracking
   - Calculating the rate of crack growth and keep an eye on them
 - Integrating onto a 3D model of the bridge (Building Information Modeling//)
