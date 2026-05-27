@@ -25,7 +25,7 @@ Pixel-level semantic segmentation for bridge surface cracks.
 
 The naive baseline finds most crack pixels but bleeds predictions into the background (7.3% precision, ~8× worse than U-Net). U-Net is the usable model (+5× Dice/F1 vs baseline).
 
-**Repo map:** `[baseline.ipynb](baseline.ipynb)` · `[unet.ipynb](unet.ipynb)` · `[notes/use_case.md](notes/use_case.md)` · `[notes/future_work.md](notes/future_work.md)`
+**Repo map:** [baseline.ipynb](baseline.ipynb) · [unet.ipynb](unet.ipynb) · [notes/use_case.md](notes/use_case.md) · [notes/future_work.md](notes/future_work.md)
 
 ---
 
