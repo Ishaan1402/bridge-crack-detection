@@ -85,7 +85,7 @@ Each notebook ends with a visualization grid: input image, ground-truth mask, pr
 
 ### What I'd do next
 
-Details in `[notes/future_work.md](notes/future_work.md)`: temporal crack progression, BIM/3D integration, multi-class defects (rust, spalling, rebar), edge inference on drones.
+Details in [notes/future_work.md](notes/future_work.md): temporal crack progression, BIM/3D integration, multi-class defects (rust, spalling, rebar), edge inference on drones.
 
 ### Reproduce
 
