@@ -91,3 +91,23 @@ def test_predict_large_image_small_input(dummy_settings):
     assert mask.shape == (128, 128)
     assert np.all(mask == 0)
     assert ratio == 0.0
+
+
+def test_predict_large_image_overlap_param(dummy_settings):
+    """Verifies that passing custom param values works and does not modify default predictor's settings."""
+    model = DummySegmentationModel(output_val=1.0)
+    predictor = SlidingWindowPredictor(model, dummy_settings, device=torch.device("cpu"))
+
+    # Initial setting value
+    initial_setting_overlap = dummy_settings.inference.overlap
+    assert initial_setting_overlap == 0.5
+
+    dummy_image = np.ones((512, 512, 3), dtype=np.uint8) * 128
+
+    # Pass a different overlap parameter
+    probs, _, _ = predictor.predict_large_image(dummy_image, overlap=0.25)
+
+    assert probs.shape == (512, 512)
+    # Verify the settings value remains unchanged
+    assert predictor.settings.inference.overlap == 0.5
+
