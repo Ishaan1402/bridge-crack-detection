@@ -1,0 +1,23 @@
+app:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  log_level: "info"
+
+model:
+  checkpoint_path: "checkpoints/best_unet.pth"
+  hf_repo_id: "ishaan1402/bridge_crack_detection_U-Net"
+  hf_filename: "best_unet.pth"
+  in_channels: 3
+  out_channels: 1
+  features: [64, 128, 256, 512]
+
+inference:
+  patch_size: 448
+  overlap: 0.5
+  sigma_scale: 0.125
+  default_threshold: 0.5
+
+metrics:
+  density_cell_size: 64
+  max_density_threshold: 0.05
