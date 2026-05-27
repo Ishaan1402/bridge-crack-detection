@@ -6,6 +6,20 @@ Automated crack detection from high-resolution UAV bridge imagery; powered by U-
 
 **Model weights:** [ishaan1402/bridge_crack_detection_U-Net](https://huggingface.co/ishaan1402/bridge_crack_detection_U-Net) on Hugging Face
 
+## Demo
+
+### Inference Demo
+
+
+
+**Input | crack mask | density heatmap**
+
+### Evaluation against Test Set
+
+
+
+**Original | ground truth | prediction**
+
 ---
 
 ## SparkNotes
@@ -23,7 +37,7 @@ Automated crack detection from high-resolution UAV bridge imagery; powered by U-
 | [U-Net](src/models/unet.py) | **0.823** | **0.586** | **0.68** | **0.52** |
 
 
-The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline).
+The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline). See the [evaluation grid](#test-set-evaluation) above for side-by-side predictions.
 
 ---
 
