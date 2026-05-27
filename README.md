@@ -128,7 +128,7 @@ curl http://127.0.0.1:8000/health
 # Predict and save a side by side comparative panel
 curl -X POST -F "file=@input/example_1.jpeg" \
   "http://127.0.0.1:8000/predict?overlay_type=both&threshold=0.5&overlap=0.5" \
-  --output "result_panel_$(date +%Y%m%d_%H%M%S).jpg"
+  --output "output/result_panel_$(date +%Y%m%d_%H%M%S).jpg"
 ```
 
 ### 3. Generate Precision-Recall Curve Profiles
