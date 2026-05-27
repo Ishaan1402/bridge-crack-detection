@@ -81,7 +81,7 @@ Requires Python 3.10+ to be installed:
 # Create venv and install packages
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r <(poetry export --dev --without-hashes)  # Or standard pip setup
+pip install -r requirements.txt
 
 # Run all unit and integration tests
 .venv/bin/pytest tests/
