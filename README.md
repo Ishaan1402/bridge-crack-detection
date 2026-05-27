@@ -97,10 +97,10 @@ Test endpoints via cURL:
 # Get health status
 curl http://127.0.0.1:8000/health
 
-# Predict and save a side by side compare panel
+# Predict and save a side-by-side comparative panel (timestamped to prevent overwriting)
 curl -X POST -F "file=@my_drone_photo.jpg" \
   "http://127.0.0.1:8000/predict?overlay_type=both&threshold=0.5&overlap=0.5" \
-  --output result_panel.jpg
+  --output "result_panel_$(date +%Y%m%d_%H%M%S).jpg"
 ```
 
 ### 3. Generate Precision-Recall Curve Profiles
