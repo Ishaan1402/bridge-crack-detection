@@ -10,88 +10,103 @@ Pixel-level semantic segmentation for bridge surface cracks.
 
 ## SparkNotes
 
-**Problem:** Bridge visual inspections are dangerous, slow, expensive, and often require lane closures or scaffolding. Inspectors need to find thin cracks in thousands of square feet of concrete.
+**Problem:** Bridge inspections are slow, dangerous, expensive, and require lane closures or scaffolding. Inspectors need to locate thin cracks in thousands of square feet of concrete. High-res drone images (4K/8K) normally exceed GPU memory limits if fed directly, while downsampling destroys detail in said images.
 
-**What this does:** A UAV drone captures high-res photos of bridge surfaces (over, underneath, between lanes, etc). The images are fed into this model, which outputs a pixel-level segmentation crack mask giving engineers a prioritized repair map and cracked-area ratio. Output resolution will always match the input.
+**What this does:** Slidng window inference tiles high-res imagery, runs U-Net segmentation on overlapping patches, and blends them using a 2D Gaussian weight map. It tracks cracked-area ratio, compiles local density heatmaps, and serves predictions via a FastAPI endpoint.
 
 **Results (test set, 48 images, 448×448 Kaggle tiles):**
-
 
 | Model                                                | Recall    | Precision | Dice     | IoU      |
 | ---------------------------------------------------- | --------- | --------- | -------- | -------- |
 | [Baseline](baseline.ipynb) — RF on LBP/HOG patches   | 0.78      | 0.073     | 0.13     | 0.07     |
 | [U-Net](unet.ipynb) — encoder-decoder, BCE+Dice loss | **0.823** | **0.586** | **0.68** | **0.52** |
 
-
-The naive baseline finds most crack pixels but bleeds predictions into the background (7.3% precision, ~8× worse than U-Net). U-Net is the usable model (+5× Dice/F1 vs baseline).
-
-**Repo map:** [baseline.ipynb](baseline.ipynb) · [unet.ipynb](unet.ipynb) · [notes/use_case.md](notes/use_case.md) · [notes/future_work.md](notes/future_work.md)
+The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline).
 
 ---
 
-## Notes
+## Workspace Structure
 
-### Problem and approach
-
-Cracks occupy a median ~0.93% of pixels — severe class imbalance. Most detection papers use object detection (YOLO, Faster R-CNN), which gives boxes and labels. This project uses **semantic segmentation** instead: the output is a mask that traces crack shape and width, which is what repair crews actually need.
-
-See `[notes/use_case.md](notes/use_case.md)` for the full motivation.
-
-### Dataset
-
-315 image/mask pairs from the [UAV-Based Crack Detection](https://www.kaggle.com/datasets/ziya07/uav-based-crack-detection-dataset) Kaggle dataset. Images set to **448×448**.
-
-
-| Split | Images |
-| ----- | ------ |
-| Train | 220    |
-| Val   | 47     |
-| Test  | 48     |
-
-
-Layout: `{split}/images/` and `{split}/masks/`. Notebooks expect the full dataset zip on Google Drive at `bridge_crack_detection/dataset_split.zip`. 
-
-**Image size:** Neither notebook resizes. Both read images at native resolution and output a mask of the same dimensions. The baseline tiles with `PATCH_SIZE=16`, so height and width must be divisible by 16. The U-Net is fully convolutional, 4 pooling levels. For batched U-Net training, all images in a split need to match dimensions. It's recommended to keep images anywhere from 256x256 to 512x512, as long as they are divisible by 16. 
-
-### Models
-
-**[baseline.ipynb](baseline.ipynb)** — baseline
-
-1. Tile each image into 16×16 patches.
-2. Convert each patch to a fixed feature vector: brightness, texture (LBP), edges (HOG).
-3. Train `RandomForestClassifier(n_estimators=100, class_weight='balanced')`.
-4. Subsample background patches at 10% during training to counter imbalance.
-5. Reconstruct patch predictions back into the same resolution mask.
-
-**[unet.ipynb](unet.ipynb)** — main model
-
-1. Custom U-Net: 4-level encoder/decoder, features `[64, 128, 256, 512]`, skip connections.
-2. `BCEDiceLoss` (50/50 weight): BCE penalizes per-pixel probabilities that disagree with the ground truth, meaning the more confident the mistake, the bigger the penalty. Dice Loss evaluates how much of the actual cracked region and predicted crack region overlap, pixelwise.
-3. Augmentations: flips, color jitter, ImageNet normalization.
-4. Adam, lr=1e-4, batch size 8, 25 epochs.
-
-### Evaluation
-
-Both notebooks use the same metrics over the test set:
-
-- **Recall** — did we find the crack pixels? (primary metric; missing a crack is worse than a false alarm)
-- **Precision** — how much of the predicted mask is actually cracked?
-- **Dice / F1** — overlap quality between actual and predicted
-- **IoU** — strict overlap between actual and predicted
-
-
-
-Each notebook ends with a visualization grid: input image, ground-truth mask, predicted mask.
-
-### What I'd do next
-
-Details in [notes/future_work.md](notes/future_work.md): temporal crack progression, BIM/3D integration, multi-class defects (rust, spalling, rebar), edge inference on drones.
-
-### Reproduce
-
+The project has been restructured into a modular Python package:
 ```text
-1. Upload dataset_split.zip to Google Drive (or local path).
-2. Open baseline.ipynb or unet.ipynb in Colab.
-3. Run all cells. Training + eval are self-contained.
+bridge_crack_detection/
+├── config/              # Central YAML configs
+├── scripts/             # Developer CLI tools
+│   ├── download_checkpoint.py # Model fetcher
+│   └── threshold_sweep.py     # Hyperparameter tuning tool evaluating Precision-Recall curves
+├── src/                 
+│   ├── config/          # Pydantic schema validation
+│   ├── dataset/         # PyTorch dataset & Albumentations transforms
+│   ├── inference/       # Sliding window predictor
+│   ├── metrics/         # Spatial density heatmaps
+│   ├── models/          # Custom U-Net, in PyTorch
+│   ├── utils/           # Visual overlay output helpers
+│   └── app.py           # FastAPI server
+└── tests/               # Pytest unit and integration test suite
 ```
 
+---
+
+## Features
+
+### 1. Sliding Window Inference (`src/inference/`)
+High-resolution drone photos cannot fit in the model all at once, so we seperate them into overlapping squares, run the model on each square, then stitch the results back together.
+* Default patch size is 448×448 with 50% overlap (each step moves 224px).
+* Overlapping regions are averaged together. Patches near the center of each square are weighted more than edges in order to remove the seam lines between tiles.
+* Photos smaller than the configured patch size are padded, run through the model, then cropped back to the original size, though this is not recommended. The top and left borders sit on the patch edge where predictions are naturally downweighted, and padding on the right and bottom adds fake content that will skew detections on these sides.
+
+### 2. Crack Density Heatmaps (`src/metrics/`)
+Converts the binary crack mask into a colored map showing where damage is clustered.
+* Splits the image into grids (e.g. 64×64 pixel blocks).
+* Each grid receives a proportioned crack percentage (% of pixels marked as crack).
+* Grid is upsampled back to original image size and colored in: [blue = undamaged, red = severely cracked]
+
+### 3. API server (`src/app.py`)
+FastAPI app serving predictions over HTTP.
+* **`/health`** — verifies if server is up and running and if the model is loaded
+* **`/predict`** — receives an image and outputs an overlay. Query params: `threshold`, `overlap`, `overlay_type` (`mask`, `heatmap`, or `both` side by side).
+* Validates uploads: allowed formats (jpg/png/webp/tiff), max 50MB, image size between 256 and 8192 px.
+* Returns statistics in response headers: cracked area %, inference time, whether any crack was found.
+
+### 4. Docker (`Dockerfile`)
+* **Build** — installs dependencies and downloads model weights from Hugging Face at build time.
+* **Run** — runs as non-root user (`appuser`), starts Uvicorn.
+
+---
+
+## Local Development & Usage
+
+### 1. Run Local Installation
+Requires Python 3.10+ to be installed:
+```bash
+# Create venv and install packages
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r <(poetry export --dev --without-hashes)  # Or standard pip setup
+
+# Run all unit and integration tests
+.venv/bin/pytest tests/
+```
+
+### 2. Launch FastAPI Server
+```bash
+# Start the server locally on port 8000
+.venv/bin/uvicorn src.app:app --reload --host 127.0.0.1 --port 8000
+```
+Test endpoints via cURL:
+```bash
+# Get health status
+curl http://127.0.0.1:8000/health
+
+# Predict and save a side by side compare panel
+curl -X POST -F "file=@my_drone_photo.jpg" \
+  "http://127.0.0.1:8000/predict?overlay_type=both&threshold=0.5&overlap=0.5" \
+  --output result_panel.jpg
+```
+
+### 3. Generate Precision-Recall Curve Profiles
+Execute a threshold parameter sweep on test splits:
+```bash
+python scripts/threshold_sweep.py --data_dir /path/to/my_split_dir --output_dir reports/
+```
+Match up the best performing thresholds which maxes overall Dice and displays performance charts in `reports/pr_curve.png`.
