@@ -16,7 +16,7 @@ Automated crack detection from high-resolution UAV bridge imagery; powered by U-
 
 ### Evaluation against test set
 
-![Test set evaluation: original bridge images, ground truth masks, and U-Net predictions](assets/images/binary_example.png)
+<img src="assets/images/binary_example.png" width="70%" alt="Test set evaluation">
 
 **Original | ground truth | prediction** 
 
