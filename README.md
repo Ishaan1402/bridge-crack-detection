@@ -1,6 +1,6 @@
-# Bridge Crack Detection
+# ClearSpan
 
-Pixel-level semantic segmentation for bridge surface cracks.
+Automated crack detection from high-resolution UAV bridge imagery; powered by U-Net, an Encoder-Decoder CNN model with skip connections. 
 
 **Poster:** [Automated Bridge Surface Crack Detection using UAV Imagery and Deep Learning Segmentation](references/bridge_crack_detection_poster_final.pdf) — AI Student Symposium 2026
 
@@ -12,14 +12,14 @@ Pixel-level semantic segmentation for bridge surface cracks.
 
 **Problem:** Bridge inspections are slow, dangerous, expensive, and require lane closures or scaffolding. Inspectors need to locate thin cracks in thousands of square feet of concrete. High-res drone images (4K/8K) normally exceed GPU memory limits if fed directly, while downsampling destroys detail in said images.
 
-**What this does:** Slidng window inference tiles high-res imagery, runs U-Net segmentation on overlapping patches, and blends them using a 2D Gaussian weight map. It tracks cracked-area ratio, compiles local density heatmaps, and serves predictions via a FastAPI endpoint.
+**What this does:** Sliding window inference tiles high-res imagery, runs U-Net segmentation on overlapping patches, and blends them using a 2D Gaussian weight map. This application tracks cracked-area ratio, compiles local density heatmaps, and serves predictions via a FastAPI endpoint.
 
 **Results (test set, 48 images, 448×448 Kaggle tiles):**
 
 | Model                                                | Recall    | Precision | Dice     | IoU      |
 | ---------------------------------------------------- | --------- | --------- | -------- | -------- |
-| [Baseline](baseline.ipynb) — RF on LBP/HOG patches   | 0.78      | 0.073     | 0.13     | 0.07     |
-| [U-Net](unet.ipynb) — encoder-decoder, BCE+Dice loss | **0.823** | **0.586** | **0.68** | **0.52** |
+| [Baseline](baseline.ipynb) —   | 0.78      | 0.073     | 0.13     | 0.07     |
+| [U-Net](unet.ipynb)   | **0.823** | **0.586** | **0.68** | **0.52** |
 
 The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline).
 
@@ -30,7 +30,7 @@ The Random Forest baseline is noisy and is notoriously prone to false positives 
 The project has been restructured into a modular Python package:
 ```text
 bridge_crack_detection/
-├── config/              # Central YAML configs
+├── config/              # YAML configs
 ├── scripts/             # Developer CLI tools
 │   ├── download_checkpoint.py # Model fetcher
 │   └── threshold_sweep.py     # Hyperparameter tuning tool evaluating Precision-Recall curves
