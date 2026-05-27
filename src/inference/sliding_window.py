@@ -50,7 +50,7 @@ class SlidingWindowPredictor:
         tensor = torch.from_numpy(normalized).permute(2, 0, 1).unsqueeze(0)
         return tensor.to(self.device)
 
-    def predict_large_image(self, image_rgb: np.ndarray, threshold: float = None) -> tuple:
+    def predict_large_image(self, image_rgb: np.ndarray, threshold: float = None, overlap: float = None) -> tuple:
         """
         Splits a high-resolution image into tiles, performs model inference using
         sliding window, and blends predictions back using 2D Gaussian kernel.
@@ -62,7 +62,8 @@ class SlidingWindowPredictor:
         """
         h_img, w_img, _ = image_rgb.shape
         t_val = threshold if threshold is not None else self.settings.inference.default_threshold
-        stride = int(self.patch_size * (1.0 - self.settings.inference.overlap))
+        overlap_val = overlap if overlap is not None else self.settings.inference.overlap
+        stride = int(self.patch_size * (1.0 - overlap_val))
 
         # Pad image reflective-borders if input is smaller than patch_size
         # Not recommended, best to keep at least 448x448
@@ -70,7 +71,7 @@ class SlidingWindowPredictor:
             pad_h = max(0, self.patch_size - h_img)
             pad_w = max(0, self.patch_size - w_img)
             padded_img = cv2.copyMakeBorder(image_rgb, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT)
-            p_map, b_mask, _ = self.predict_large_image(padded_img, t_val)
+            p_map, b_mask, _ = self.predict_large_image(padded_img, threshold=t_val, overlap=overlap_val)
             return p_map[:h_img, :w_img], b_mask[:h_img, :w_img], float(np.sum(b_mask[:h_img, :w_img]) / (h_img * w_img))
 
         # Generate scanning coordinates across vertical and horizontal planes
