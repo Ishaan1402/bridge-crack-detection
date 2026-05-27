@@ -1,0 +1,35 @@
+# Exclude runtime setups
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Exclude venvs
+.venv/
+venv/
+env/
+ENV/
+
+# Exclude IDE configs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Exclude local model weights
+checkpoints/
+
+# Exclude testing and reporting artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+reports/
+
+# Exclude package lock frameworks and logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Exclude Git configs
+.git/
+.gitignore
+.dockerignore
