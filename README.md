@@ -4,6 +4,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-009688?logo=fastapi&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.2.0-EE4C2C?logo=pytorch&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)
+[![Model Weights](https://img.shields.io/badge/🤗%20Model-Weights-yellow)](https://huggingface.co/ishaan1402/bridge_crack_detection_U-Net)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 Automated crack detection from high-resolution UAV bridge imagery; powered by U-Net, an Encoder-Decoder CNN model with skip connections. 
@@ -17,7 +18,7 @@ Automated crack detection from high-resolution UAV bridge imagery; powered by U-
 ### Inference
 
 <p align="center">
-  <img src="assets/images/overlay_example.jpg" width="70%" alt="Bridge crack detection: original photo, green segmentation mask, and JET density heatmap"/>
+  <img src="assets/images/overlay_example.jpg" alt="Bridge crack detection: original photo, green segmentation mask, and JET density heatmap"/>
   <br/>
   <em>Figure 1: UAV Drone Imagery (Left) → Crack Segmentation Mask (Center) → Local Density Heatmap (Right)</em>
 </p>
