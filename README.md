@@ -1,24 +1,34 @@
 # ClearSpan
 
+![Python Version](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-009688?logo=fastapi&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.2.0-EE4C2C?logo=pytorch&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Automated crack detection from high-resolution UAV bridge imagery; powered by U-Net, an Encoder-Decoder CNN model with skip connections. 
 
 **Poster:** [Automated Bridge Surface Crack Detection using UAV Imagery and Deep Learning Segmentation](references/bridge_crack_detection_poster_final.pdf) — AI Student Symposium 2026
 
 **Model weights:** [ishaan1402/bridge_crack_detection_U-Net](https://huggingface.co/ishaan1402/bridge_crack_detection_U-Net) on Hugging Face
 
-## Demo
+## Output
 
 ### Inference
 
-![Bridge crack detection: original photo, green segmentation mask, and JET density heatmap](assets/images/overlay_example.jpg)
+<p align="center">
+  <img src="assets/images/overlay_example.jpg" width="70%" alt="Bridge crack detection: original photo, green segmentation mask, and JET density heatmap"/>
+  <br/>
+  <em>Figure 1: UAV Drone Imagery (Left) → Crack Segmentation Mask (Center) → Local Density Heatmap (Right)</em>
+</p>
 
-**Input | crack mask | density heatmap** 
+### Test Set Evaluation
 
-### Evaluation against test set
-
-<img src="assets/images/binary_example.png" width="70%" alt="Test set evaluation">
-
-**Original | ground truth | prediction** 
+<p align="center">
+  <img src="assets/images/binary_example.png" width="70%" alt="Test set evaluation: original bridge images, ground truth masks, and U-Net predictions"/>
+  <br/>
+  <em>Figure 2: UAV Drone Imagery (Left) → Ground Truth (Center) → U-Net Segmentation Prediction (Right)</em>
+</p>
 
 ---
 
@@ -33,11 +43,11 @@ Automated crack detection from high-resolution UAV bridge imagery; powered by U-
 
 | Model                       | Recall    | Precision | Dice     | IoU      |
 | --------------------------- | --------- | --------- | -------- | -------- |
-| [Baseline](baseline.ipynb)  | 0.78      | 0.073     | 0.13     | 0.07     |
+| [Baseline](edu/baseline.ipynb)  | 0.78      | 0.073     | 0.13     | 0.07     |
 | [U-Net](src/models/unet.py) | **0.823** | **0.586** | **0.68** | **0.52** |
 
 
-The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline). See the [evaluation grid](#evaluation-against-test-set) above for side-by-side predictions.
+The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline). See the [evaluation grid](#test-set-evaluation) above for side-by-side predictions.
 
 ---
 
@@ -128,18 +138,13 @@ curl http://127.0.0.1:8000/health
 # Predict and save a side by side comparative panel
 curl -X POST -F "file=@input/example_1.jpeg" \
   "http://127.0.0.1:8000/predict?overlay_type=both&threshold=0.5&overlap=0.5" \
-<<<<<<< Updated upstream
   --output "output/result_panel_$(date +%Y%m%d_%H%M%S).jpg"
-=======
-  --output "result_panel_$(date +%Y%m%d_%H%M%S).jpg"
 
-  # Predict + report response headers
-
+  # Predict, save a side by side comparative panel, and report response headers
   curl -X POST -F "file=@input/example_1.jpeg" \
   'http://127.0.0.1:8000/predict?overlay_type=both&threshold=0.5&overlap=0.5' \
-  -o "result_panel_$(date +%Y%m%d_%H%M%S).jpg" \
-  -D 
->>>>>>> Stashed changes
+  -o "output/result_panel_$(date +%Y%m%d_%H%M%S).jpg" \
+  -D -
 ```
 
 ### 3. Generate Precision-Recall Curve Profiles
