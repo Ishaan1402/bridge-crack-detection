@@ -1,35 +1,27 @@
-# ClearSpan
+# crack-seg
 
-![Python Version](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-009688?logo=fastapi&logoColor=white)
-![PyTorch](https://img.shields.io/badge/PyTorch-2.2.0-EE4C2C?logo=pytorch&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)
-[![Model Weights](https://img.shields.io/badge/🤗%20Model-Weights-yellow)](https://huggingface.co/ishaan1402/bridge_crack_detection_U-Net)
-![License](https://img.shields.io/badge/license-MIT-green)
+Python Version
+FastAPI
+PyTorch
+Docker
+[Model Weights](https://huggingface.co/ishaan1402/crack-seg)
+License
 
 Automated crack detection from high-resolution UAV bridge imagery; powered by U-Net, an Encoder-Decoder CNN model with skip connections. 
 
 **Poster:** [Automated Bridge Surface Crack Detection using UAV Imagery and Deep Learning Segmentation](references/bridge_crack_detection_poster_final.pdf) — AI Student Symposium 2026
 
-**Model weights:** [ishaan1402/bridge_crack_detection_U-Net](https://huggingface.co/ishaan1402/bridge_crack_detection_U-Net) on Hugging Face
+**Model weights:** [ishaan1402/crack-seg](https://huggingface.co/ishaan1402/crack-seg) on Hugging Face
 
 ## Output
 
 ### Inference
 
-<p align="center">
-  <img src="assets/images/overlay_example.jpg" alt="Bridge crack detection: original photo, green segmentation mask, and JET density heatmap"/>
-  <br/>
-  <em>Figure 1: UAV Drone Imagery (Left) → Crack Segmentation Mask (Center) → Local Density Heatmap (Right)</em>
-</p>
+*Figure 1: UAV Drone Imagery (Left) → Crack Segmentation Mask (Center) → Local Density Heatmap (Right)*
 
 ### Test Set Evaluation
 
-<p align="center">
-  <img src="assets/images/binary_example.png" width="70%" alt="Test set evaluation: original bridge images, ground truth masks, and U-Net predictions"/>
-  <br/>
-  <em>Figure 2: UAV Drone Imagery (Left) → Ground Truth (Center) → U-Net Segmentation Prediction (Right)</em>
-</p>
+*Figure 2: UAV Drone Imagery (Left) → Ground Truth (Center) → U-Net Segmentation Prediction (Right)*
 
 ---
 
@@ -39,23 +31,30 @@ Automated crack detection from high-resolution UAV bridge imagery; powered by U-
 
 **What this does:** Outputs clean pixel-level segmentation masks of cracks from high-res UAV bridge photos. Sliding window inference tiles high-res imagery, runs U-Net segmentation on overlapping patches, and blends them using a 2D Gaussian weight map. This application also tracks cracked-area ratio, compiles local density heatmaps, and serves predictions via a FastAPI endpoint.
 
-**Results (test set, 58 images, 448×448):**
+**Why `crack-seg`?**
+UAV bridge imagery is typically full of high contrast structure that isn’t structural damage (joints, shadows, stains, and aggregate). Pipelines built on small patch classifiers, like our Random Forest baseline, or fixed gradient thresholds often miss thin cracks or flag false positives when lighting and surface type change.
+
+crack-seg uses pixel-level U-Net segmentation so the model can use neighboring context rather than classifying each patch from local texture alone. Dense masks support metrics such as cracked-area ratio and density maps which cannot be obtained from bounding boxes or per-patch labels alone.
+
+Initial results are on a holdout set of 48 images comparing against a patch-RF baseline. Ongoing work adds DeepLabV3+ and cross-dataset evaluation on DeepCrack to improve performance and generalization.
+
+**Results (test set, 48 images, 448×448):**
 
 
-| Model                       | Recall    | Precision | Dice     | IoU      |
-| --------------------------- | --------- | --------- | -------- | -------- |
-| [Baseline](edu/baseline.ipynb)  | 0.78      | 0.073     | 0.13     | 0.07     |
-| [U-Net](src/models/unet.py) | **0.823** | **0.586** | **0.68** | **0.52** |
+| Model                          | Recall    | Precision | Dice     | IoU      |
+| ------------------------------ | --------- | --------- | -------- | -------- |
+| [Baseline](edu/baseline.ipynb) | 0.78      | 0.073     | 0.13     | 0.07     |
+| [U-Net](src/models/unet.py)    | **0.823** | **0.586** | **0.68** | **0.52** |
 
 
-The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline). See the [evaluation grid](#test-set-evaluation) above for side-by-side predictions.
+The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline).
 
 ---
 
 ## Repo Structure
 
 ```text
-bridge_crack_detection/
+crack-seg/
 ├── config/              # YAML configs
 ├── scripts/             # Developer CLI tools
 │   ├── download_checkpoint.py # Model fetcher
@@ -95,10 +94,10 @@ Converts the binary crack mask into a colored map showing where damage is cluste
 
 FastAPI app serving predictions over HTTP.
 
-- `**/health**` — verifies if server is up and running and if the model is loaded
-- `**/predict**` — receives an image and outputs an overlay. Query params: `threshold`, `overlap`, `overlay_type` (`mask`, `heatmap`, or `both` side by side).
-- Validates uploads: allowed formats (jpg/png/webp/tiff), max 50MB, image size between 256 and 8192 px.
-- Returns statistics in response headers: cracked area %, inference time, whether any crack was found.
+- `/health` — verifies that the server is running and the model is loaded.
+- `/predict` — receives an image and returns an overlay. Query params: `threshold`, `overlap`, `overlay_type` (`mask`, `heatmap`, or `both` side by side).
+- Validates uploads: allowed formats (`jpg`, `png`, `webp`, `tiff`), max 50 MB, image dimensions between 256 and 8192 px.
+- Returns statistics in response headers: cracked area %, inference time, and whether any crack was detected.
 
 ### 4. Docker (`Dockerfile`)
 

@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "bridge_crack_detection"
+name = "crack-seg"
 version = "0.1.0"
 description = "Deep learning semantic segmentation pipeline for bridge crack mapping."
 authors = ["Ishaan <ishaan@example.com>"]
