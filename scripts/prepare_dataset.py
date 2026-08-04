@@ -22,6 +22,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 
@@ -56,15 +57,19 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--test-frac", type=float, default=0.2)
     ap.add_argument("--classes", type=int, nargs="+", default=None,
                     help="For multi-class label masks: which class IDs count as crack")
+    ap.add_argument("--source", default="source", help="Source tag: prefixes output filenames and records manifest stats")
+    ap.add_argument("--cap", type=int, default=0, help="Max pairs to convert from this source (0 = all)")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--max-images", type=int, default=0, help="Cap on pairs to process (0 = all)")
     args = ap.parse_args(argv)
 
     random.seed(args.seed)
     pairs = _pair_files(args.images, args.masks)
+    random.shuffle(pairs)
     if args.max_images:
         pairs = pairs[: args.max_images]
-    random.shuffle(pairs)
+    if args.cap:
+        pairs = pairs[: args.cap]
 
     n_test = int(len(pairs) * args.test_frac)
     n_val = int(len(pairs) * args.val_frac)
@@ -102,13 +107,40 @@ def main(argv: list[str] | None = None) -> None:
                 image_rgb = cv2.resize(image_rgb, (args.resize, args.resize), interpolation=cv2.INTER_LINEAR)
                 binary = cv2.resize(binary, (args.resize, args.resize), interpolation=cv2.INTER_NEAREST)
 
-            stem = os.path.splitext(os.path.basename(img_path))[0]
+            stem = f"{args.source}_{os.path.splitext(os.path.basename(img_path))[0]}"
             cv2.imwrite(os.path.join(img_dir, f"{stem}.jpg"), cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR),
                         [int(cv2.IMWRITE_JPEG_QUALITY), 95])
             cv2.imwrite(os.path.join(msk_dir, f"{stem}.png"), binary)
 
+    # Update the per-source manifest with counts and mean crack ratio
+    manifest_path = os.path.join(args.out, "manifest.json")
+    manifest = {}
+    if os.path.exists(manifest_path):
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+    crack_ratios = []
+    for split in ("train", "val", "test"):
+        mask_dir = os.path.join(args.out, split, "masks")
+        if not os.path.isdir(mask_dir):
+            continue
+        for name in os.listdir(mask_dir):
+            mask = cv2.imread(os.path.join(mask_dir, name), cv2.IMREAD_GRAYSCALE)
+            if mask is not None:
+                crack_ratios.append(float(np.mean(mask > 127)))
+    manifest[args.source] = {
+        "train": len(splits["train"]),
+        "val": len(splits["val"]),
+        "test": len(splits["test"]),
+        "mean_crack_ratio": float(np.mean(crack_ratios)) if crack_ratios else 0.0,
+        "resize": args.resize,
+    }
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+
     for split, split_pairs in splits.items():
         print(f"{split:6s}: {len(split_pairs)} pairs")
+    print(f"Source '{args.source}' registered in {manifest_path}")
+    print(f"Mean crack ratio: {manifest[args.source]['mean_crack_ratio']:.4f}")
     print(f"Output written to {os.path.abspath(args.out)}")
 
 

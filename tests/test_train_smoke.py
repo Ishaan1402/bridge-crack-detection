@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from src.models.checkpoint import load_unet_checkpoint
+from scripts.train import resolve_training_preset
 from scripts import prepare_dataset, train
 
 
@@ -34,12 +35,21 @@ def test_train_smoke(tmp_path):
         "--data-dir", str(data_dir), "--out", str(out),
         "--epochs", "1", "--batch-size", "2", "--lr", "1e-3",
         "--resize", "64", "--features", "8,16", "--seed", "0",
+        "--amp",
     ])
 
     assert out.exists()
     model, features = load_unet_checkpoint(str(out), "cpu")
     assert features == [8, 16]
     assert model.encoder[0].conv[0].out_channels == 8
+
+
+def test_training_preset_by_gpu():
+    """GPU-class presets: T4/L4 low batch, A100/V100 high batch, 512px both."""
+    assert resolve_training_preset([32, 64, 128, 256], "Tesla T4") == (512, 8)
+    assert resolve_training_preset([64, 128, 256, 512], "Tesla T4") == (512, 4)
+    assert resolve_training_preset([32, 64, 128, 256], "NVIDIA A100-SXM4-40GB") == (512, 16)
+    assert resolve_training_preset([64, 128, 256, 512], "NVIDIA A100-SXM4-40GB") == (512, 8)
 
 
 def test_prepare_dataset_layout_and_binarization(tmp_path):
@@ -69,3 +79,33 @@ def test_prepare_dataset_layout_and_binarization(tmp_path):
         for mask_path in os.listdir(out / split / "masks"):
             mask = cv2.imread(str(out / split / "masks" / mask_path), cv2.IMREAD_GRAYSCALE)
             assert set(np.unique(mask)) <= {0, 255}
+
+
+def test_prepare_dataset_source_cap_manifest(tmp_path):
+    """--source prefixes filenames, --cap bounds pairs, manifest records stats."""
+    src_imgs = tmp_path / "imgs"
+    src_msks = tmp_path / "msks"
+    src_imgs.mkdir()
+    src_msks.mkdir()
+    for i in range(6):
+        cv2.imwrite(str(src_imgs / f"f{i}.jpg"), np.full((32, 32, 3), 120, dtype=np.uint8))
+        msk = np.zeros((32, 32), dtype=np.uint8)
+        msk[5:8, :] = 255
+        cv2.imwrite(str(src_msks / f"f{i}.png"), msk)
+
+    out = tmp_path / "capped"
+    prepare_dataset.main([
+        "--images", str(src_imgs), "--masks", str(src_msks), "--out", str(out),
+        "--source", "dc", "--cap", "4", "--val-frac", "0.25", "--test-frac", "0.0", "--seed", "0",
+    ])
+
+    train_files = sorted(os.listdir(out / "train" / "images"))
+    assert len(train_files) == 3
+    assert all(name.startswith("dc_") for name in train_files)
+
+    import json
+    with open(out / "manifest.json") as f:
+        manifest = json.load(f)
+    assert manifest["dc"]["train"] == 3
+    assert manifest["dc"]["val"] == 1
+    assert manifest["dc"]["mean_crack_ratio"] > 0.09

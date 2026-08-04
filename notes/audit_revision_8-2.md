@@ -331,3 +331,25 @@ huggingface-cli upload ishaan1402/crack-seg notes/hf_model_card_v2.md README.md
   training protocol.
 - Tests: **29/29 passing** (upgrade flags, deep-supervision shapes, loss with
   aux, SE/deep checkpoint loading, train smoke, dataset-converter smoke).
+
+---
+
+## Status 2026-08-04 — v3 retraining implementation
+
+Implements the approved "Retrain v3 on Google Colab" plan:
+
+- **Data staging**: `scripts/prepare_dataset.py` gains `--source` (prefixes
+  filenames, e.g. `uav11k_*`), `--cap`, and a per-source `manifest.json`
+  (counts + mean crack ratio). `scripts/colab_data.py` downloads/stages the
+  three sources (Drive zip or kagglehub for UAV, GitHub zip for DeepCrack,
+  gdown for Auto-ROS-LAB UAV 11k).
+- **Model**: `UNet` gains kaiming/BN init and an optional
+  `upsample_mode="interpolate"` decoder (bilinear + 1×1 conv); the checkpoint
+  loader auto-falls back to the interpolate variant when a strict load fails.
+- **Training**: `scripts/train.py` adds AMP, cosine (warmup) / plateau LR,
+  EMA, grad clipping, early stopping, `--aug strong`, and GPU-class presets
+  (T4/L4 → batch 8/4; A100/V100 → 16/8, both at 512 px).
+- **Colab**: `edu/train_v3.ipynb` (19 cells) drives it end-to-end and saves
+  the checkpoint to Drive with HF-upload + eval commands.
+- Tests: **34/34 passing** (interpolate mode, loader fallback, GPU presets,
+  AMP smoke, source/cap/manifest).

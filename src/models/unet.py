@@ -58,6 +58,10 @@ class UNet(nn.Module):
       - ``dropout``:          Dropout2d on the bottleneck (regularization)
       - ``deep_supervision``: auxiliary 1x1 heads on decoder stages, used
                               only during training via ``forward_deep``
+      - ``upsample_mode``:    ``"conv_transpose"`` (default, checkpoint-
+                              compatible) or ``"interpolate"`` (bilinear
+                              upsample + 1x1 conv, avoids checkerboard
+                              artifacts on thin cracks)
     """
     def __init__(
         self,
@@ -67,9 +71,12 @@ class UNet(nn.Module):
         se: bool = False,
         dropout: float = 0.0,
         deep_supervision: bool = False,
+        upsample_mode: str = "conv_transpose",
     ):
         super().__init__()
         features = features or [64, 128, 256, 512]
+        if upsample_mode not in ("conv_transpose", "interpolate"):
+            raise ValueError(f"Unknown upsample_mode: {upsample_mode}")
         self.encoder = nn.ModuleList()
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
@@ -84,11 +91,18 @@ class UNet(nn.Module):
         self.bottleneck_dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
 
         # Expansion
-        self.up_transposes = nn.ModuleList()
+        self.upsample_mode = upsample_mode
         self.decoder = nn.ModuleList()
-        for f in reversed(features):
-            self.up_transposes.append(nn.ConvTranspose2d(f * 2, f, kernel_size=2, stride=2))
-            self.decoder.append(DoubleConv(f * 2, f, se=se))
+        if upsample_mode == "conv_transpose":
+            self.up_transposes = nn.ModuleList()
+            for f in reversed(features):
+                self.up_transposes.append(nn.ConvTranspose2d(f * 2, f, kernel_size=2, stride=2))
+                self.decoder.append(DoubleConv(f * 2, f, se=se))
+        else:
+            self.up_convs = nn.ModuleList()
+            for f in reversed(features):
+                self.up_convs.append(nn.Conv2d(f * 2, f, kernel_size=1))
+                self.decoder.append(DoubleConv(f * 2, f, se=se))
 
         # Pixel-level Output Map
         self.final_conv = nn.Conv2d(features[0], out_channels, kernel_size=1)
@@ -100,6 +114,19 @@ class UNet(nn.Module):
             ])
         else:
             self.deep_heads = nn.ModuleList()
+
+        self.apply(self._init_weights)
+
+    @staticmethod
+    def _init_weights(module: nn.Module) -> None:
+        """Kaiming init for convs, unit-gain BN — helps from-scratch training."""
+        if isinstance(module, (nn.Conv2d, nn.ConvTranspose2d)):
+            nn.init.kaiming_normal_(module.weight, mode="fan_out", nonlinearity="relu")
+            if module.bias is not None:
+                nn.init.constant_(module.bias, 0)
+        elif isinstance(module, nn.BatchNorm2d):
+            nn.init.constant_(module.weight, 1)
+            nn.init.constant_(module.bias, 0)
 
     def _forward(self, x: torch.Tensor) -> tuple:
         skips = []
@@ -115,9 +142,14 @@ class UNet(nn.Module):
         skips = skips[::-1]
 
         aux = []
-        for idx in range(len(self.up_transposes)):
+        n_ups = len(self.up_transposes) if self.upsample_mode == "conv_transpose" else len(self.up_convs)
+        for idx in range(n_ups):
             # 'upscale'
-            x = self.up_transposes[idx](x)
+            if self.upsample_mode == "conv_transpose":
+                x = self.up_transposes[idx](x)
+            else:
+                x = nn.functional.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+                x = self.up_convs[idx](x)
             skip_connection = skips[idx]
 
             # if upscaled image doesn't match dimesions with

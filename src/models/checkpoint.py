@@ -37,12 +37,12 @@ def inspect_state_dict(state_dict: dict) -> list[int]:
     return features
 
 
-def remap_legacy_keys(state_dict: dict) -> dict:
+def remap_legacy_keys(state_dict: dict, up_name: str = "up_transposes") -> dict:
     """Map legacy ``up.*`` / ``final.*`` names onto the current module names."""
     remapped = {}
     for key, value in state_dict.items():
         if key.startswith("up."):
-            key = "up_transposes." + key[3:]
+            key = f"{up_name}.{key[3:]}"
         elif key.startswith("final."):
             key = "final_conv." + key[6:]
         remapped[key] = value
@@ -72,13 +72,24 @@ def load_unet_checkpoint(checkpoint_path: str, device: torch.device) -> tuple[UN
     se = any(k.endswith(".se.fc.1.weight") for k in state_dict)
     deep_supervision = "deep_heads.0.weight" in state_dict
 
-    model = UNet(
-        in_channels=3,
-        out_channels=1,
-        features=features,
-        se=se,
-        deep_supervision=deep_supervision,
-    ).to(device)
-    model.load_state_dict(remap_legacy_keys(state_dict))
+    def _build(upsample_mode: str) -> UNet:
+        return UNet(
+            in_channels=3,
+            out_channels=1,
+            features=features,
+            se=se,
+            deep_supervision=deep_supervision,
+            upsample_mode=upsample_mode,
+        ).to(device)
+
+    # Prefer the checkpoint-compatible ConvTranspose decoder; fall back to the
+    # interpolate decoder (bilinear + 1x1 conv) if the strict load fails.
+    try:
+        model = _build("conv_transpose")
+        model.load_state_dict(remap_legacy_keys(state_dict))
+    except RuntimeError:
+        model = _build("interpolate")
+        model.load_state_dict(remap_legacy_keys(state_dict, up_name="up_convs"))
+
     model.eval()
     return model, features

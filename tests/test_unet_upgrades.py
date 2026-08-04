@@ -1,5 +1,6 @@
 import torch
 
+from src.models.checkpoint import load_unet_checkpoint
 from src.models.losses import BCEDiceLoss
 from src.models.unet import UNet
 
@@ -45,3 +46,34 @@ def test_bcedice_loss_with_aux():
     assert loss_main.ndim == 0
     assert loss_aux.ndim == 0
     assert loss_aux.item() > loss_main.item()  # auxiliary terms add loss
+
+
+def test_interpolate_upsample_mode():
+    """interpolate mode uses 1x1 up-convs, not ConvTranspose."""
+    default = UNet(features=[32, 64, 128, 256])
+    interp = UNet(features=[32, 64, 128, 256], upsample_mode="interpolate")
+
+    assert "up_transposes.0.weight" in default.state_dict()
+    assert "up_transposes.0.weight" not in interp.state_dict()
+    assert "up_convs.0.weight" in interp.state_dict()
+
+    interp.eval()
+    x = torch.randn(1, 3, 128, 128)
+    with torch.inference_mode():
+        logits = interp(x)
+    assert logits.shape == (1, 1, 128, 128)
+
+
+def test_loader_falls_back_to_interpolate(tmp_path):
+    """An interpolate-mode checkpoint must load via the auto-fallback."""
+    model = UNet(features=[32, 64, 128, 256], se=True, deep_supervision=True,
+                 upsample_mode="interpolate")
+    path = tmp_path / "v3_interp.pth"
+    torch.save(model.state_dict(), path)
+
+    loaded, features = load_unet_checkpoint(str(path), torch.device("cpu"))
+
+    assert features == [32, 64, 128, 256]
+    assert loaded.upsample_mode == "interpolate"
+    for key, value in model.state_dict().items():
+        assert torch.equal(loaded.state_dict()[key], value), f"Mismatch on {key}"
