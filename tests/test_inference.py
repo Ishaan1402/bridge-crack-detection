@@ -186,3 +186,19 @@ def test_tta_averaging_is_identity_for_constant_logits(dummy_settings):
     p_override, _, _ = plain.predict_large_image(image, tta=True)
     p_plain_again, _, _ = plain.predict_large_image(image)
     assert np.allclose(p_override, p_plain_again, atol=1e-6)
+
+
+def test_overlap_must_be_less_than_one(dummy_settings):
+    """overlap >= 1.0 would produce a zero stride and must be rejected."""
+    model = DummySegmentationModel(output_val=1.0)
+    predictor = SlidingWindowPredictor(model, dummy_settings, torch.device("cpu"))
+    image = np.ones((512, 512, 3), dtype=np.uint8) * 128
+    with pytest.raises(ValueError, match="overlap"):
+        predictor.predict_large_image(image, overlap=1.0)
+
+
+def test_predict_rejects_non_rgb_input(dummy_settings):
+    model = DummySegmentationModel(output_val=1.0)
+    predictor = SlidingWindowPredictor(model, dummy_settings, torch.device("cpu"))
+    with pytest.raises(ValueError, match="HxWx3"):
+        predictor.predict_large_image(np.ones((128, 128), dtype=np.uint8))

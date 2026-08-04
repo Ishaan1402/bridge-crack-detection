@@ -52,3 +52,16 @@ def test_inspect_rejects_unknown_width():
     state = {"encoder.0.conv.0.weight": torch.zeros(128, 3, 3, 3)}
     with pytest.raises(ValueError, match="Unrecognized first encoder width"):
         inspect_state_dict(state)
+
+
+def test_load_checkpoint_wrapped_in_state_dict(tmp_path):
+    """Checkpoints saved as {'state_dict': ..., 'epoch': ...} must load too."""
+    model = UNet(in_channels=3, out_channels=1, features=[32, 64, 128, 256])
+    path = tmp_path / "wrapped.pth"
+    torch.save({"state_dict": model.state_dict(), "epoch": 5, "val_dice": 0.747}, path)
+
+    loaded, features = load_unet_checkpoint(str(path), torch.device("cpu"))
+
+    assert features == [32, 64, 128, 256]
+    for key, value in model.state_dict().items():
+        assert torch.equal(loaded.state_dict()[key], value), f"Mismatch on {key}"

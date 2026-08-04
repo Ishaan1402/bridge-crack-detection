@@ -99,9 +99,15 @@ class SlidingWindowPredictor:
             binary_mask   (np.ndarray): thresholded segmentation mask (0/1)
             crack_area_ratio (float):   cracked pixels / total pixels
         """
+        if image_rgb.ndim != 3 or image_rgb.shape[2] != 3:
+            raise ValueError(
+                f"Expected an HxWx3 RGB image, got shape {image_rgb.shape}"
+            )
         h_img, w_img, _ = image_rgb.shape
         t_val = threshold if threshold is not None else self.settings.inference.default_threshold
         overlap_val = overlap if overlap is not None else self.settings.inference.overlap
+        if overlap_val >= 1.0:
+            raise ValueError("overlap must be < 1.0 (stride would be zero)")
 
         # Fast, artifact-free path for images that fit in a single forward pass
         if max(h_img, w_img) <= self.patch_size:

@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List
+import os
 import yaml
 
 class AppSettings(BaseModel):
@@ -36,6 +37,10 @@ class SystemSettings(BaseModel):
 
     @classmethod
     def load_from_yaml(cls, path: str) -> "SystemSettings":
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Config file not found: {path}")
         with open(path, "r") as f:
             cfg = yaml.safe_load(f)
+        if not isinstance(cfg, dict):
+            raise ValueError(f"Config file must contain a YAML mapping, got: {type(cfg).__name__}")
         return cls(**cfg)

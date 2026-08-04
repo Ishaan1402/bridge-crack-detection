@@ -60,6 +60,14 @@ def load_unet_checkpoint(checkpoint_path: str, device: torch.device) -> tuple[UN
         (model, detected_features)
     """
     state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    # Tolerate checkpoints saved as {"state_dict": ..., ...} (e.g. with training metadata)
+    if (
+        isinstance(state_dict, dict)
+        and "state_dict" in state_dict
+        and isinstance(state_dict["state_dict"], dict)
+        and "encoder.0.conv.0.weight" in state_dict["state_dict"]
+    ):
+        state_dict = state_dict["state_dict"]
     features = inspect_state_dict(state_dict)
 
     model = UNet(in_channels=3, out_channels=1, features=features).to(device)

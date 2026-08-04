@@ -67,7 +67,6 @@ def predict_sliding(model: torch.nn.Module, image_rgb: np.ndarray, device: torch
 
 
 def metrics_from_counts(tp: float, fp: float, fn: float, eps: float = 1e-6) -> dict:
-    tn_irrelevant = None
     recall = tp / (tp + fn + eps)
     precision = tp / (tp + fp + eps)
     dice = (2 * tp + eps) / (2 * tp + fp + fn + eps)

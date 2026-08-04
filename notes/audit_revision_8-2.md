@@ -284,3 +284,25 @@ huggingface-cli upload ishaan1402/crack-seg checkpoints/best_unet.pth unet_narro
 huggingface-cli upload ishaan1402/crack-seg /Users/ishaan/Downloads/best_unet.pth unet_wide_v1.pth
 huggingface-cli upload ishaan1402/crack-seg notes/hf_model_card_v2.md README.md
 ```
+
+---
+
+## Status 2026-08-04 — full prediction/loading hardening pass
+
+- **Device selection** (`src/utils/device.py`): CUDA → MPS (with a sanity
+  probe and CPU fallback) → CPU, so local Mac runs can use MPS when available
+  and nothing breaks when it isn't (this build reports MPS unavailable → CPU).
+- **Config loader**: clear `FileNotFoundError` / type errors for missing or
+  malformed YAML instead of a bare `TypeError`.
+- **UNet**: fixed the mutable default `features=[64,128,256,512]` argument
+  (now `Optional[List[int]]` with a safe default).
+- **Checkpoint loader**: also accepts checkpoints saved as
+  `{"state_dict": ..., "epoch": ...}` (training-style wrappers).
+- **Sliding window**: rejects `overlap >= 1.0` (would produce a zero stride /
+  infinite loop) and validates the input is H×W×3 RGB before unpacking.
+- **API**: module logging replaces bare prints; `/health` now reports the
+  detected features, TTA flag, and batch size; Pydantic validation catches
+  only `ValidationError`; responses use `Response` directly instead of a
+  `BytesIO` wrapper; weight-dir creation is guarded.
+- Tests: **22/22 passing**, including the new guards and the wrapped-checkpoint
+  case.

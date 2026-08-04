@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from typing import List, Optional
 
 class DoubleConv(nn.Module):
     """
@@ -26,8 +27,9 @@ class UNet(nn.Module):
     Custom implementation of U-Net architecture for
     high-res semantic segmentation.
     """
-    def __init__(self, in_channels: int = 3, out_channels: int = 1, features: list = [64, 128, 256, 512]):
+    def __init__(self, in_channels: int = 3, out_channels: int = 1, features: Optional[List[int]] = None):
         super().__init__()
+        features = features or [64, 128, 256, 512]
         self.encoder = nn.ModuleList()
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
