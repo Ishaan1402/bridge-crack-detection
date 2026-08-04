@@ -21,6 +21,8 @@ class InferenceSettings(BaseModel):
     overlap: float = Field(ge=0.0, le=0.9)
     sigma_scale: float = Field(ge=0.05, le=0.5)
     default_threshold: float = Field(ge=0.0, le=1.0)
+    batch_size: int = Field(default=1, ge=1, le=64, description="Patches per forward pass (CPU-friendly default; predictor raises it on CUDA)")
+    tta: bool = Field(default=False, description="Horizontal/vertical flip test-time augmentation")
 
 class MetricsSettings(BaseModel):
     density_cell_size: int = Field(ge=16, le=256)

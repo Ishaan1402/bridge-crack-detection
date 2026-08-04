@@ -226,3 +226,61 @@ benchmark (+5–6 global Dice), but at 4× the parameters and FLOPs. Which model
 is truly "better" for the UAV use case still needs the real 48-image test
 split to settle; the narrow model's 0.747 claim rests on the UAV validation
 split only.
+
+---
+
+## Status 2026-08-04 — inference optimization
+
+Implemented on `revision_8-2` (commit after this section):
+
+- **Direct full-image path**: images with `max(h, w) <= patch_size` now run
+  as a single forward pass instead of the padded sliding-window branch —
+  faster and free of padded-border downweighting.
+- **Batched sliding window**: patches are stacked and forwarded in batches
+  (`inference.batch_size`). Measured on this Mac's CPU, batch=1 is fastest
+  (0.69 s/img); larger batches only pay off on GPU, so the predictor
+  auto-raises the batch size to 8 on CUDA and keeps 1 on CPU.
+- **Test-time augmentation** (`inference.tta`, also a `?tta=` API param):
+  h/v/both-flip averaging. On a 30-image DeepCrack subset it added
+  **+0.96 global Dice** (0.8456 → 0.8552) at 4× compute — ~1 Dice point, as
+  expected. Off by default.
+- **Non-blocking API**: the CPU-bound inference and overlay rendering run in
+  a thread pool (`run_in_threadpool`), so the FastAPI event loop no longer
+  stalls under concurrent requests.
+- **Equivalence proof**: new predictor vs old on 30 DeepCrack images —
+  max probability diff 7.45e-6 (float32 rounding), identical masks on all 30.
+- Tests: 19/19 passing, including batched-vs-sequential equivalence and
+  direct-path correctness.
+
+Measured inference cost on this Mac (CPU, narrow model):
+
+| Mode | 448-tile s/img | 4K-ish (est.) |
+| --- | --- | --- |
+| mask, batch 1 (default) | ~0.6 | ~1–2 min |
+| TTA enabled | ~2.2 | ~5–8 min |
+
+Biggest remaining CPU lever for the HF Space: ONNX export + onnxruntime
+(typically 1.5–3× on CPU) — deferred because it adds a deployment artifact
+and verification step, not because it's low value.
+
+### Both models on HF
+
+The old wide checkpoint was **not deleted**: HF history retains the original
+`best_unet.pth` upload (commit `95ea1a500fd7`, 124 MB) alongside the narrow
+replacement, and a local copy exists at `~/Downloads/best_unet.pth`.
+Proposed layout for `ishaan1402/crack-seg`:
+
+| Remote file | Source | Notes |
+| --- | --- | --- |
+| `unet_narrow_v2.pth` | current `best_unet.pth` (SHA `92cb2200…`) | HPO narrow, repo default |
+| `unet_wide_v1.pth` | `~/Downloads/best_unet.pth` or HF rev `95ea1a500fd7` | original wide |
+| `best_unet.pth` | keep as-is | backward-compatible alias |
+
+Draft card: `notes/hf_model_card_v2.md`. Upload commands require a HF token
+(`huggingface-cli login`), then:
+
+```bash
+huggingface-cli upload ishaan1402/crack-seg checkpoints/best_unet.pth unet_narrow_v2.pth
+huggingface-cli upload ishaan1402/crack-seg /Users/ishaan/Downloads/best_unet.pth unet_wide_v1.pth
+huggingface-cli upload ishaan1402/crack-seg notes/hf_model_card_v2.md README.md
+```

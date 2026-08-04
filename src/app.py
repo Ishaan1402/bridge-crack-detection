@@ -5,6 +5,7 @@ import cv2
 import os
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 import torch
 
@@ -83,6 +84,7 @@ async def predict(
     file: UploadFile = File(...),
     threshold: float = Query(None, ge=0.0, le=1.0, description="Segmentation confidence threshold"),
     overlap: float = Query(None, ge=0.0, le=0.9, description="Patch stride ratio"),
+    tta: bool = Query(None, description="Test-time augmentation (flip averaging); default from config"),
     overlay_type: str = Query("mask", pattern="^(mask|heatmap|both)$", description="Visual response output")
 ):
     """
@@ -134,13 +136,17 @@ async def predict(
     # Convert BGR (from OpenCV) to RGB
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
-    # Execute inference
+    # Execute inference off the event loop (CPU-bound work in a thread pool)
     t_start = time.perf_counter()
-    _, b_mask, car = predictor.predict_large_image(image_rgb, threshold, overlap)
+    _, b_mask, car = await run_in_threadpool(
+        predictor.predict_large_image, image_rgb, threshold, overlap, tta
+    )
     t_inference_ms = (time.perf_counter() - t_start) * 1000.0
 
     # Overlay representations
-    output_image = create_visual_overlay(image_bgr, b_mask, overlay_type, settings)
+    output_image = await run_in_threadpool(
+        create_visual_overlay, image_bgr, b_mask, overlay_type, settings
+    )
 
     # Re-encode numpy matrix to JPEG byte stream
     _, im_encoded = cv2.imencode(".jpg", output_image, [int(cv2.IMWRITE_JPEG_QUALITY), 85])

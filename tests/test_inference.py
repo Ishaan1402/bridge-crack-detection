@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from src.config.schema import SystemSettings, AppSettings, ModelSettings, InferenceSettings, MetricsSettings
 from src.inference.sliding_window import SlidingWindowPredictor
+from src.models.unet import UNet
 
 class DummySegmentationModel(nn.Module):
     """
@@ -111,3 +112,77 @@ def test_predict_large_image_overlap_param(dummy_settings):
     # Verify the settings value remains unchanged
     assert predictor.settings.inference.overlap == 0.5
 
+
+def _real_model_settings(**inference_overrides):
+    defaults = dict(patch_size=256, overlap=0.5, sigma_scale=0.125, default_threshold=0.5)
+    defaults.update(inference_overrides)
+    return SystemSettings(
+        app=AppSettings(host="0.0.0.0", port=8000, debug=True, log_level="info"),
+        model=ModelSettings(
+            checkpoint_path="dummy.pth", hf_repo_id="dummy/repo", hf_filename="dummy.pth",
+            in_channels=3, out_channels=1, features=[8, 16],
+        ),
+        inference=InferenceSettings(**defaults),
+        metrics=MetricsSettings(density_cell_size=16, max_density_threshold=0.05),
+    )
+
+
+def test_batched_inference_matches_sequential():
+    """Batching patches must not change the blended output vs one-at-a-time."""
+    torch.manual_seed(0)
+    model = UNet(in_channels=3, out_channels=1, features=[8, 16])
+    settings = _real_model_settings()
+    image = np.random.randint(0, 255, (300, 300, 3), dtype=np.uint8)
+
+    seq = SlidingWindowPredictor(model, settings, torch.device("cpu"), batch_size=1)
+    bat = SlidingWindowPredictor(model, settings, torch.device("cpu"), batch_size=4)
+
+    p_seq, m_seq, r_seq = seq.predict_large_image(image)
+    p_bat, m_bat, r_bat = bat.predict_large_image(image)
+
+    assert p_seq.shape == p_bat.shape == (300, 300)
+    assert np.allclose(p_seq, p_bat, atol=1e-6)
+    assert np.array_equal(m_seq, m_bat)
+    assert r_seq == r_bat
+
+
+def test_direct_path_for_subpatch_image():
+    """Images at/below the patch size take a single forward pass."""
+    torch.manual_seed(1)
+    model = UNet(in_channels=3, out_channels=1, features=[8, 16])
+    settings = _real_model_settings()
+    predictor = SlidingWindowPredictor(model, settings, torch.device("cpu"))
+    image = np.random.randint(0, 255, (200, 256, 3), dtype=np.uint8)
+
+    probs, mask, ratio = predictor.predict_large_image(image)
+
+    assert probs.shape == (200, 256)
+    assert mask.shape == (200, 256)
+    assert 0.0 <= ratio <= 1.0
+
+    # Manual single forward for an exact match
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    x = torch.from_numpy(((image.astype(np.float32) / 255.0 - mean) / std).transpose(2, 0, 1)[None])
+    with torch.inference_mode():
+        expected = torch.sigmoid(model(x)).squeeze().numpy()
+    assert np.allclose(probs, expected, atol=1e-6)
+
+
+def test_tta_averaging_is_identity_for_constant_logits(dummy_settings):
+    """TTA must not change outputs for a model with constant logits."""
+    model = DummySegmentationModel(output_val=1.0)
+    settings = dummy_settings
+    image = np.ones((512, 512, 3), dtype=np.uint8) * 128
+
+    plain = SlidingWindowPredictor(model, settings, torch.device("cpu"))
+    tta = SlidingWindowPredictor(model, settings, torch.device("cpu"), tta=True)
+
+    p_plain, _, _ = plain.predict_large_image(image)
+    p_tta, _, _ = tta.predict_large_image(image)
+
+    assert np.allclose(p_plain, p_tta, atol=1e-6)
+    # Per-call override must not persist on the instance
+    p_override, _, _ = plain.predict_large_image(image, tta=True)
+    p_plain_again, _, _ = plain.predict_large_image(image)
+    assert np.allclose(p_override, p_plain_again, atol=1e-6)

@@ -20,6 +20,10 @@ inference:
   overlap: 0.5
   sigma_scale: 0.125
   default_threshold: 0.5
+  # CPU-friendly default (measured fastest on Apple/MKL CPU paths). The
+  # predictor automatically raises this to 8 on CUDA unless overridden.
+  batch_size: 1
+  tta: false
 
 metrics:
   density_cell_size: 64
