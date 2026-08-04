@@ -67,6 +67,18 @@ def _merge_splits(raw_root: str, out: str, source: str) -> None:
     print(f"Merged {source} (pre-split) into {out}")
 
 
+def write_kaggle_credentials(username: str, key: str) -> None:
+    """Write username/key into ~/.kaggle/kaggle.json and export env vars."""
+    kaggle_dir = os.path.join(os.path.expanduser("~"), ".kaggle")
+    os.makedirs(kaggle_dir, exist_ok=True)
+    cred_path = os.path.join(kaggle_dir, "kaggle.json")
+    with open(cred_path, "w") as f:
+        json.dump({"username": username, "key": key}, f)
+    os.chmod(cred_path, stat.S_IRUSR | stat.S_IWUSR)
+    os.environ["KAGGLE_USERNAME"] = str(username)
+    os.environ["KAGGLE_KEY"] = str(key)
+
+
 def setup_kaggle_credentials(kaggle_json_path: str) -> bool:
     """
     Install MyDrive/kaggle.json for kagglehub.
@@ -76,14 +88,12 @@ def setup_kaggle_credentials(kaggle_json_path: str) -> bool:
     """
     if not os.path.exists(kaggle_json_path):
         return False
-    with open(kaggle_json_path) as f:
-        creds = json.load(f)
-    kaggle_dir = os.path.join(os.path.expanduser("~"), ".kaggle")
-    os.makedirs(kaggle_dir, exist_ok=True)
-    shutil.copy(kaggle_json_path, os.path.join(kaggle_dir, "kaggle.json"))
-    os.chmod(os.path.join(kaggle_dir, "kaggle.json"), stat.S_IRUSR | stat.S_IWUSR)
-    os.environ["KAGGLE_USERNAME"] = str(creds.get("username", ""))
-    os.environ["KAGGLE_KEY"] = str(creds.get("key", ""))
+    try:
+        with open(kaggle_json_path) as f:
+            creds = json.load(f)
+        write_kaggle_credentials(creds.get("username", ""), creds.get("key", ""))
+    except (OSError, ValueError):
+        return False
     return True
 
 
