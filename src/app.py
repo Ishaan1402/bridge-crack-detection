@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 import torch
 
 from src.config.schema import SystemSettings
-from src.models.unet import UNet
+from src.models.checkpoint import load_unet_checkpoint
 from src.inference.sliding_window import SlidingWindowPredictor
 from src.utils.visualizations import create_visual_overlay
 
@@ -21,17 +21,10 @@ if not os.path.exists(CONFIG_PATH):
 settings = SystemSettings.load_from_yaml(CONFIG_PATH)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Initialize and cache U-Net checkpoint for server
-model = UNet(
-    in_channels=settings.model.in_channels,
-    out_channels=settings.model.out_channels,
-    features=settings.model.features
-)
-
 # Check for missing weight files
 checkpoint_path = settings.model.checkpoint_path
 if not os.path.exists(checkpoint_path):
-    # Download if missing from directory
+    # Download from Hugging Face if missing
     os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
     try:
         from huggingface_hub import hf_hub_download
@@ -43,10 +36,20 @@ if not os.path.exists(checkpoint_path):
             local_dir_use_symlinks=False
         )
     except Exception as d_err:
-        print(f"Warning: Automatic download failed ({d_err}). Server will start but might fail model load.")
+        raise RuntimeError(
+            f"Failed to download model weights from {settings.model.hf_repo_id}: {d_err}"
+        ) from d_err
 
-if os.path.exists(checkpoint_path):
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+if not os.path.exists(checkpoint_path):
+    raise FileNotFoundError(f"Model checkpoint not found: {checkpoint_path}")
+
+# Load weights, auto-detecting the checkpoint's channel widths and legacy key naming
+model, detected_features = load_unet_checkpoint(checkpoint_path, device)
+if detected_features != settings.model.features:
+    print(
+        f"Note: checkpoint uses features {detected_features}, config declares "
+        f"{settings.model.features}; serving the checkpoint's architecture."
+    )
 model.eval()
 
 predictor = SlidingWindowPredictor(model, settings, device)
@@ -99,7 +102,7 @@ async def predict(
     file_size_mb = len(contents) / (1024 * 1024)
     if file_size_mb > 50.0:
         raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"Image file size limit exceeded (max 50MB, received: {file_size_mb:.2f}MB)"
         )
 

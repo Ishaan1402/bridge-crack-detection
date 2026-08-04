@@ -189,3 +189,40 @@ PYTHONPATH=. .venv/bin/python scripts/verify_metrics.py \
   --images input/DeepCrack/test_img --masks input/DeepCrack/test_lab \
   --mode both --thresholds 0.3 0.4 0.5 0.6 0.7
 ```
+
+---
+
+## Status 2026-08-04 — loader fixed
+
+Implemented on `revision_8-2`:
+
+- **`src/models/checkpoint.py`**: auto-detects checkpoint width
+  (`[32,64,128,256]` narrow vs `[64,128,256,512]` wide), remaps legacy
+  `up.*` / `final.*` key names, loads with `weights_only=True`, strict.
+- **`src/app.py`**: uses the shared loader; startup now fails fast with a
+  clear error if weights are missing/undownloadable instead of silently
+  serving a random model; fixed a latent `starlette.status` 413 constant
+  that crashed the oversized-upload path.
+- **`config/config.yaml`**: features now match the published narrow weights.
+- **`scripts/verify_metrics.py`**: reuses the shared loader.
+- **`tests/test_checkpoint_loader.py`**: round-trip tests for narrow/legacy
+  and wide/current naming; full suite **16/16 passing**.
+- End-to-end smoke: `src.app` starts with the published weights; `/health`
+  ready; `/predict` returns 200 with crack-area ratio ~4.1% on
+  `input/example_1.jpeg` (~660 ms CPU).
+
+### Wide vs narrow head-to-head (DeepCrack test, 237 images, direct)
+
+| Thr | Wide Dice | Narrow Dice | Wide IoU | Narrow IoU | Wide Rec | Narrow Rec |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0.3 | **0.769** | 0.718 | **0.624** | 0.560 | **0.762** | 0.665 |
+| 0.4 | **0.774** | 0.719 | **0.632** | 0.561 | **0.744** | 0.661 |
+| 0.5 | **0.775** | 0.720 | **0.633** | 0.562 | **0.727** | 0.656 |
+| 0.6 | **0.771** | 0.720 | **0.627** | 0.563 | **0.705** | 0.651 |
+| 0.7 | **0.759** | 0.721 | **0.612** | 0.563 | **0.673** | 0.646 |
+
+The original wide model wins on every threshold on this cross-domain
+benchmark (+5–6 global Dice), but at 4× the parameters and FLOPs. Which model
+is truly "better" for the UAV use case still needs the real 48-image test
+split to settle; the narrow model's 0.747 claim rests on the UAV validation
+split only.

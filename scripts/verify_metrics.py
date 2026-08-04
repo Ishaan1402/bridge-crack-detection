@@ -27,40 +27,11 @@ import cv2
 import numpy as np
 import torch
 
-from src.models.unet import UNet
+from src.models.checkpoint import load_unet_checkpoint
 
 
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-
-
-def load_checkpoint(path: str, device: torch.device) -> torch.nn.Module:
-    """Build the UNet that matches the checkpoint, regardless of key naming."""
-    ckpt = torch.load(path, map_location="cpu", weights_only=True)
-
-    # Auto-detect width from the first encoder conv.
-    first_feat = ckpt["encoder.0.conv.0.weight"].shape[0]
-    if first_feat == 32:
-        features = [32, 64, 128, 256]
-    elif first_feat == 64:
-        features = [64, 128, 256, 512]
-    else:
-        raise ValueError(f"Unrecognized first encoder width: {first_feat}")
-
-    model = UNet(in_channels=3, out_channels=1, features=features).to(device)
-
-    # Older checkpoints name the upsampling blocks ``up`` and the head ``final``.
-    remap = {}
-    for k, v in ckpt.items():
-        if k.startswith("up."):
-            k = "up_transposes." + k[3:]
-        elif k.startswith("final."):
-            k = "final_conv." + k[6:]
-        remap[k] = v
-
-    model.load_state_dict(remap)
-    model.eval()
-    return model
 
 
 def predict_direct(model: torch.nn.Module, image_rgb: np.ndarray, device: torch.device) -> np.ndarray:
@@ -171,9 +142,9 @@ def main():
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_checkpoint(args.checkpoint, device)
+    model, features = load_unet_checkpoint(args.checkpoint, device)
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"Loaded {args.checkpoint} | width={model.encoder[0].conv[0].out_channels} "
+    print(f"Loaded {args.checkpoint} | features={features} "
           f"| params={n_params/1e6:.2f}M | device={device}")
 
     image_paths = sorted(glob.glob(os.path.join(args.images, "*")))
