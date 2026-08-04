@@ -147,13 +147,40 @@ def download_deepcrack(data_root: str) -> tuple[str, str, str, str]:
     )
 
 
-def download_uav11k(data_root: str) -> tuple[str, str]:
-    """Returns (images_dir, masks_dir) for the Auto-ROS-LAB UAV 11k dataset."""
+def download_uav11k(data_root: str, max_retries: int = 3) -> tuple[str, str]:
+    """
+    Returns (images_dir, masks_dir) for the Auto-ROS-LAB UAV 11k dataset.
+
+    Uses a pre-downloaded zip at {data_root}/uav11k.zip if present (e.g.
+    grabbed from a browser when Drive stops rate-limiting), otherwise tries
+    gdown with retries.
+    """
     zip_path = os.path.join(data_root, "uav11k.zip")
     raw = os.path.join(data_root, "uav11k_raw")
-    if not any(glob.glob(os.path.join(raw, "**", "image*"), recursive=True)) or not os.path.exists(raw):
-        import gdown
-        gdown.download(id=UAV11K_DRIVE_ID, output=zip_path, quiet=False)
+    extracted = any(glob.glob(os.path.join(raw, "**", "image*"), recursive=True))
+    if not extracted:
+        if os.path.exists(zip_path):
+            print(f"Using pre-downloaded {zip_path}")
+        else:
+            import time
+            import gdown
+            last_error = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    gdown.download(id=UAV11K_DRIVE_ID, output=zip_path, quiet=False, fuzzy=True)
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    print(f"gdown attempt {attempt}/{max_retries} failed: {exc}")
+                    if attempt < max_retries:
+                        time.sleep(10 * attempt)
+            else:
+                raise RuntimeError(
+                    "Could not download the UAV 11k dataset — Google Drive is "
+                    "rate-limiting the author's file. Options: set SKIP_UAV11K = "
+                    "True in the notebook, or download the file manually in a "
+                    "browser and save it as {zip_path}, then rerun."
+                ) from last_error
         unzip(zip_path, raw)
     return _find_image_mask_dirs(raw)
 
