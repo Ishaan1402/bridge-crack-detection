@@ -19,6 +19,7 @@ import zipfile
 
 DEEPCRACK_ZIP_URL = "https://raw.githubusercontent.com/yhlleo/DeepCrack/master/dataset/DeepCrack.zip"
 UAV11K_DRIVE_ID = "1RMf0GYXn7Mq1s9STGFG5iByavTr05SjF"
+MERGED11K_DRIVE_ID = "1xrOqv0-3uMHjZyEUrerOYiYXW_E8SUMP"
 UAV_KAGGLE_DATASET = "ziya07/uav-based-crack-detection-dataset"
 
 
@@ -38,10 +39,12 @@ def download_url(url: str, dest: str) -> str:
 
 def _find_image_mask_dirs(root: str) -> tuple[str, str]:
     """Locate the images and masks folders in an unknown dataset layout."""
-    image_dirs = sorted(glob.glob(os.path.join(root, "**", "image*"), recursive=True))
-    mask_dirs = sorted(glob.glob(os.path.join(root, "**", "mask*"), recursive=True))
-    image_dirs = [d for d in image_dirs if os.path.isdir(d) and len(os.listdir(d)) > 10]
-    mask_dirs = [d for d in mask_dirs if os.path.isdir(d) and len(os.listdir(d)) > 10]
+    image_dirs = [d for d in glob.glob(os.path.join(root, "**", "*"), recursive=True)
+                  if os.path.isdir(d) and any(t in os.path.basename(d).lower() for t in ("image", "img"))]
+    mask_dirs = [d for d in glob.glob(os.path.join(root, "**", "*"), recursive=True)
+                 if os.path.isdir(d) and any(t in os.path.basename(d).lower() for t in ("mask", "label", "lab", "gt"))]
+    image_dirs = sorted(d for d in image_dirs if len(os.listdir(d)) > 10)
+    mask_dirs = sorted(d for d in mask_dirs if len(os.listdir(d)) > 10)
     if not image_dirs or not mask_dirs:
         raise SystemExit(f"Could not locate images/masks folders under {root}")
     return image_dirs[0], mask_dirs[0]
@@ -185,11 +188,45 @@ def download_uav11k(data_root: str, max_retries: int = 3) -> tuple[str, str]:
     return _find_image_mask_dirs(raw)
 
 
+def download_merged11k(data_root: str, max_retries: int = 3) -> tuple[str, str]:
+    """
+    Returns (images_dir, masks_dir) for the merged 11.2k crack dataset
+    (12 public datasets, all 448x448, images/ + masks/ folders).
+    """
+    zip_path = os.path.join(data_root, "crack11k.zip")
+    raw = os.path.join(data_root, "crack11k_raw")
+    extracted = any(glob.glob(os.path.join(raw, "**", "*"), recursive=True)) and os.path.isdir(raw)
+    if not extracted:
+        if os.path.exists(zip_path):
+            print(f"Using pre-downloaded {zip_path}")
+        else:
+            import time
+            import gdown
+            last_error = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    gdown.download(id=MERGED11K_DRIVE_ID, output=zip_path, quiet=False, fuzzy=True)
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    print(f"gdown attempt {attempt}/{max_retries} failed: {exc}")
+                    if attempt < max_retries:
+                        time.sleep(10 * attempt)
+            else:
+                raise RuntimeError(
+                    "Could not download the merged 11.2k dataset either. "
+                    "Set SKIP_BIG_SOURCE = True to continue with UAV Kaggle + DeepCrack."
+                ) from last_error
+        unzip(zip_path, raw)
+    return _find_image_mask_dirs(raw)
+
+
 def stage(images_dir: str, masks_dir: str, out: str, source: str, cap: int,
-          resize: int, val_frac: float, test_frac: float, seed: int = 42) -> None:
+          resize: int, val_frac: float, test_frac: float, seed: int = 42,
+          drop_prefix: str | None = None) -> None:
     """Convert one source into the merged dataset_split layout via prepare_dataset."""
     from scripts.prepare_dataset import main as prepare
-    prepare([
+    args = [
         "--images", images_dir,
         "--masks", masks_dir,
         "--out", out,
@@ -199,4 +236,7 @@ def stage(images_dir: str, masks_dir: str, out: str, source: str, cap: int,
         "--val-frac", str(val_frac),
         "--test-frac", str(test_frac),
         "--seed", str(seed),
-    ])
+    ]
+    if drop_prefix:
+        args += ["--drop-prefix", drop_prefix]
+    prepare(args)

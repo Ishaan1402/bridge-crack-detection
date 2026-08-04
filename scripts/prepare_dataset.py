@@ -59,6 +59,8 @@ def main(argv: list[str] | None = None) -> None:
                     help="For multi-class label masks: which class IDs count as crack")
     ap.add_argument("--source", default="source", help="Source tag: prefixes output filenames and records manifest stats")
     ap.add_argument("--cap", type=int, default=0, help="Max pairs to convert from this source (0 = all)")
+    ap.add_argument("--drop-prefix", default=None,
+                    help="Skip pairs whose image stem starts with this (e.g. noncrack)")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--max-images", type=int, default=0, help="Cap on pairs to process (0 = all)")
     args = ap.parse_args(argv)
@@ -66,6 +68,11 @@ def main(argv: list[str] | None = None) -> None:
     random.seed(args.seed)
     pairs = _pair_files(args.images, args.masks)
     random.shuffle(pairs)
+    if args.drop_prefix:
+        pairs = [
+            p for p in pairs
+            if not os.path.splitext(os.path.basename(p[0]))[0].lower().startswith(args.drop_prefix.lower())
+        ]
     if args.max_images:
         pairs = pairs[: args.max_images]
     if args.cap:

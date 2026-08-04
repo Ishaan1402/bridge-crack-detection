@@ -92,16 +92,21 @@ def test_prepare_dataset_source_cap_manifest(tmp_path):
         msk = np.zeros((32, 32), dtype=np.uint8)
         msk[5:8, :] = 255
         cv2.imwrite(str(src_msks / f"f{i}.png"), msk)
+    # a no-crack file that should be dropped by --drop-prefix
+    cv2.imwrite(str(src_imgs / "noncrack_a.jpg"), np.full((32, 32, 3), 120, dtype=np.uint8))
+    cv2.imwrite(str(src_msks / "noncrack_a.png"), np.zeros((32, 32), dtype=np.uint8))
 
     out = tmp_path / "capped"
     prepare_dataset.main([
         "--images", str(src_imgs), "--masks", str(src_msks), "--out", str(out),
-        "--source", "dc", "--cap", "4", "--val-frac", "0.25", "--test-frac", "0.0", "--seed", "0",
+        "--source", "dc", "--cap", "4", "--val-frac", "0.25", "--test-frac", "0.0",
+        "--seed", "0", "--drop-prefix", "noncrack",
     ])
 
     train_files = sorted(os.listdir(out / "train" / "images"))
     assert len(train_files) == 3
     assert all(name.startswith("dc_") for name in train_files)
+    assert not any("noncrack" in name for name in train_files)
 
     import json
     with open(out / "manifest.json") as f:
