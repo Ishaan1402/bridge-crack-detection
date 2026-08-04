@@ -306,3 +306,28 @@ huggingface-cli upload ishaan1402/crack-seg notes/hf_model_card_v2.md README.md
   `BytesIO` wrapper; weight-dir creation is guarded.
 - Tests: **22/22 passing**, including the new guards and the wrapped-checkpoint
   case.
+
+---
+
+## Status 2026-08-04 — model upgrades + training/data tooling
+
+- **UNet upgrades (opt-in, backward compatible)**: squeeze-and-excitation
+  blocks (`--se`), bottleneck Dropout2d (`--dropout`), deep supervision with
+  auxiliary decoder heads (`--deep-supervision`, `forward_deep` for training).
+  All default OFF so the published narrow/wide checkpoints still load
+  byte-for-byte; the loader auto-detects SE/deep heads in v3 checkpoints so
+  they remain servable.
+- **`src/models/losses.py`**: `BCEDiceLoss` (the notebook's 50/50 BCE+Dice)
+  with optional auxiliary-head weighting.
+- **`scripts/train.py`**: reproduces the project's training scheme (same
+  dataset class, transforms, optimizer, val metrics) plus `--resize`,
+  `--se/--dropout/--deep-supervision`, saves best-by-val-Dice.
+- **`scripts/prepare_dataset.py`**: converts any paired images+masks (binary
+  or multi-class) into the exact `{split}/images|masks` layout the pipeline
+  consumes, with optional resize and stratified split.
+- **`notes/data_sources.md`**: dataset dive (UAV 11k, NCCD-PF, DeepCrack,
+  CrackSeg9k/CRACK500/CFD/GAPs, Roboflow/HF exports; SDNET flagged as
+  classification-only) with per-dataset conversion notes and a recommended
+  training protocol.
+- Tests: **29/29 passing** (upgrade flags, deep-supervision shapes, loss with
+  aux, SE/deep checkpoint loading, train smoke, dataset-converter smoke).

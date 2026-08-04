@@ -22,22 +22,19 @@ from src.models.unet import UNet
 
 
 def inspect_state_dict(state_dict: dict) -> list[int]:
-    """Detect the U-Net channel widths from the first encoder convolution."""
+    """Detect the U-Net channel widths from the encoder convolutions."""
     if not isinstance(state_dict, dict) or "encoder.0.conv.0.weight" not in state_dict:
         raise ValueError(
             "Unexpected checkpoint format: expected a raw state dict from the "
             "crack-seg U-Net (found keys like 'encoder.0.conv.0.weight')."
         )
 
-    first_feat = state_dict["encoder.0.conv.0.weight"].shape[0]
-    if first_feat == 32:
-        return [32, 64, 128, 256]
-    if first_feat == 64:
-        return [64, 128, 256, 512]
-    raise ValueError(
-        f"Unrecognized first encoder width {first_feat}; expected 32 (narrow) "
-        "or 64 (wide)."
-    )
+    features = []
+    i = 0
+    while f"encoder.{i}.conv.0.weight" in state_dict:
+        features.append(int(state_dict[f"encoder.{i}.conv.0.weight"].shape[0]))
+        i += 1
+    return features
 
 
 def remap_legacy_keys(state_dict: dict) -> dict:
@@ -70,7 +67,18 @@ def load_unet_checkpoint(checkpoint_path: str, device: torch.device) -> tuple[UN
         state_dict = state_dict["state_dict"]
     features = inspect_state_dict(state_dict)
 
-    model = UNet(in_channels=3, out_channels=1, features=features).to(device)
+    # Detect optional upgrades from the state dict so v2 and v3 checkpoints
+    # are both servable. Dropout has no parameters and is inference-irrelevant.
+    se = any(k.endswith(".se.fc.1.weight") for k in state_dict)
+    deep_supervision = "deep_heads.0.weight" in state_dict
+
+    model = UNet(
+        in_channels=3,
+        out_channels=1,
+        features=features,
+        se=se,
+        deep_supervision=deep_supervision,
+    ).to(device)
     model.load_state_dict(remap_legacy_keys(state_dict))
     model.eval()
     return model, features

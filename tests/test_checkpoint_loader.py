@@ -50,8 +50,7 @@ def test_inspect_rejects_garbage():
 
 def test_inspect_rejects_unknown_width():
     state = {"encoder.0.conv.0.weight": torch.zeros(128, 3, 3, 3)}
-    with pytest.raises(ValueError, match="Unrecognized first encoder width"):
-        inspect_state_dict(state)
+    assert inspect_state_dict(state) == [128]
 
 
 def test_load_checkpoint_wrapped_in_state_dict(tmp_path):
@@ -63,5 +62,21 @@ def test_load_checkpoint_wrapped_in_state_dict(tmp_path):
     loaded, features = load_unet_checkpoint(str(path), torch.device("cpu"))
 
     assert features == [32, 64, 128, 256]
+    for key, value in model.state_dict().items():
+        assert torch.equal(loaded.state_dict()[key], value), f"Mismatch on {key}"
+
+
+def test_load_checkpoint_with_se_and_deep_supervision(tmp_path):
+    """v3 checkpoints (SE + deep heads) must load and be servable."""
+    model = UNet(in_channels=3, out_channels=1, features=[32, 64, 128, 256],
+                 se=True, deep_supervision=True)
+    path = tmp_path / "v3.pth"
+    torch.save(model.state_dict(), path)
+
+    loaded, features = load_unet_checkpoint(str(path), torch.device("cpu"))
+
+    assert features == [32, 64, 128, 256]
+    assert any(k.startswith("encoder.0.se.") for k in loaded.state_dict())
+    assert "deep_heads.0.weight" in loaded.state_dict()
     for key, value in model.state_dict().items():
         assert torch.equal(loaded.state_dict()[key], value), f"Mismatch on {key}"
