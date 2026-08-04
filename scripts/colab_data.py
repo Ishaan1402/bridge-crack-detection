@@ -9,8 +9,10 @@ sees anything other than one consistent format.
 from __future__ import annotations
 
 import glob
+import json
 import os
 import shutil
+import stat
 import urllib.request
 import zipfile
 
@@ -65,13 +67,34 @@ def _merge_splits(raw_root: str, out: str, source: str) -> None:
     print(f"Merged {source} (pre-split) into {out}")
 
 
+def setup_kaggle_credentials(kaggle_json_path: str) -> bool:
+    """
+    Install MyDrive/kaggle.json for kagglehub.
+
+    Returns True on success. Get the file from Kaggle -> Settings -> API ->
+    Create New Token, then upload it to MyDrive.
+    """
+    if not os.path.exists(kaggle_json_path):
+        return False
+    with open(kaggle_json_path) as f:
+        creds = json.load(f)
+    kaggle_dir = os.path.join(os.path.expanduser("~"), ".kaggle")
+    os.makedirs(kaggle_dir, exist_ok=True)
+    shutil.copy(kaggle_json_path, os.path.join(kaggle_dir, "kaggle.json"))
+    os.chmod(os.path.join(kaggle_dir, "kaggle.json"), stat.S_IRUSR | stat.S_IWUSR)
+    os.environ["KAGGLE_USERNAME"] = str(creds.get("username", ""))
+    os.environ["KAGGLE_KEY"] = str(creds.get("key", ""))
+    return True
+
+
 def download_uav(drive_zip: str | None, data_root: str, out: str) -> str:
     """
     Stage the UAV Kaggle source.
 
-    Primary: the project's dataset_split.zip on Drive (keeps the real
-    220/47/48 split). Fallback: kagglehub download with a fresh stratified
-    70/15/15 split (Kaggle credentials required).
+    Primary: kagglehub download with a fresh stratified 70/15/15 split
+    (Kaggle credentials required — see setup_kaggle_credentials). Optional
+    override: the project's dataset_split.zip on Drive, which keeps the
+    original 220/47/48 split.
     """
     if drive_zip and os.path.exists(drive_zip):
         raw = os.path.join(data_root, "uav_raw")
@@ -84,8 +107,15 @@ def download_uav(drive_zip: str | None, data_root: str, out: str) -> str:
         _merge_splits(base, out, "uav")
         return "drive"
 
-    import kagglehub
-    path = kagglehub.dataset_download(UAV_KAGGLE_DATASET)
+    try:
+        import kagglehub
+        path = kagglehub.dataset_download(UAV_KAGGLE_DATASET)
+    except Exception as exc:
+        raise RuntimeError(
+            "Kaggle download failed. Upload kaggle.json to MyDrive and run the "
+            "'Kaggle credentials' cell, or re-upload dataset_split.zip to "
+            "MyDrive/bridge_crack_detection/ to keep the original split."
+        ) from exc
     images, masks = _find_image_mask_dirs(path)
     stage(images, masks, out, source="uav", cap=0, resize=512,
           val_frac=0.15, test_frac=0.15, seed=42)

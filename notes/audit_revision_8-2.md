@@ -353,3 +353,18 @@ Implements the approved "Retrain v3 on Google Colab" plan:
   the checkpoint to Drive with HF-upload + eval commands.
 - Tests: **34/34 passing** (interpolate mode, loader fallback, GPU presets,
   AMP smoke, source/cap/manifest).
+
+## Status 2026-08-04 — Kaggle-first UAV source (no dataset_split needed)
+
+- `dataset_split.zip` is gone, so the notebook now downloads the UAV Kaggle
+  set via `kagglehub` with a fresh stratified 70/15/15 split. The Drive zip
+  remains an optional override (restores the original 220/47/48 split if ever
+  recovered).
+- Added `setup_kaggle_credentials()` + a notebook cell that loads
+  `MyDrive/kaggle.json`; a clear error message explains what to do when it's
+  missing. The repo code can now be delivered as `crack-seg_revision_8-2.zip`
+  in MyDrive (built via `git archive`) instead of requiring a Drive folder or
+  GitHub push.
+- The staged test split (`{out}/test`) is now the in-distribution eval target
+  (`uav_*` files are the UAV Kaggle subset); DeepCrack test remains the
+  cross-domain eval. Notebook is 21 cells; suite still 34/34.
