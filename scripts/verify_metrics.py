@@ -21,17 +21,18 @@ import argparse
 import glob
 import os
 import time
-from collections import defaultdict
 
 import cv2
 import numpy as np
 import torch
 
+from src.config.schema import SystemSettings
+from src.inference.sliding_window import IMAGENET_MEAN, IMAGENET_STD, SlidingWindowPredictor
 from src.models.checkpoint import load_unet_checkpoint
 
 
-MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+MEAN = np.array(IMAGENET_MEAN, dtype=np.float32)
+STD = np.array(IMAGENET_STD, dtype=np.float32)
 
 
 def predict_direct(model: torch.nn.Module, image_rgb: np.ndarray, device: torch.device) -> np.ndarray:
@@ -44,24 +45,11 @@ def predict_direct(model: torch.nn.Module, image_rgb: np.ndarray, device: torch.
 
 
 def predict_sliding(model: torch.nn.Module, image_rgb: np.ndarray, device: torch.device,
-                    patch_size: int = 448, overlap: float = 0.5) -> np.ndarray:
+                    settings: SystemSettings, patch_size: int = 448, overlap: float = 0.5) -> np.ndarray:
     """Sliding-window inference with Gaussian blending (matches production)."""
-    from src.config.schema import SystemSettings, AppSettings, ModelSettings, InferenceSettings, MetricsSettings
-    from src.inference.sliding_window import SlidingWindowPredictor
-
-    settings = SystemSettings(
-        app=AppSettings(host="0.0.0.0", port=8000, debug=False, log_level="info"),
-        model=ModelSettings(
-            checkpoint_path="", hf_repo_id="", hf_filename="",
-            in_channels=3, out_channels=1, features=[64],
-        ),
-        inference=InferenceSettings(
-            patch_size=patch_size, overlap=overlap,
-            sigma_scale=0.125, default_threshold=0.5,
-        ),
-        metrics=MetricsSettings(density_cell_size=64, max_density_threshold=0.05),
-    )
-    predictor = SlidingWindowPredictor(model, settings, device)
+    inference = settings.inference.copy(update={"patch_size": patch_size, "overlap": overlap})
+    run_settings = settings.copy(update={"inference": inference})
+    predictor = SlidingWindowPredictor(model, run_settings, device)
     probs, _, _ = predictor.predict_large_image(image_rgb)
     return probs
 
@@ -74,7 +62,7 @@ def metrics_from_counts(tp: float, fp: float, fn: float, eps: float = 1e-6) -> d
     return {"dice": dice, "iou": iou, "recall": recall, "precision": precision, "f1": dice}
 
 
-def evaluate(image_paths, mask_paths, model, device, mode: str, thresholds, patch_size=448, overlap=0.5):
+def evaluate(image_paths, mask_paths, model, device, mode: str, thresholds, settings, patch_size=448, overlap=0.5):
     results = {t: {"g_tp": 0, "g_fp": 0, "g_fn": 0, "per_image": []} for t in thresholds}
     gt_pos = []  # positive-pixel count per image, for the "crack-only" macro variant
 
@@ -93,7 +81,7 @@ def evaluate(image_paths, mask_paths, model, device, mode: str, thresholds, patc
         if mode == "direct":
             probs = predict_direct(model, image_rgb, device)
         else:
-            probs = predict_sliding(model, image_rgb, device, patch_size, overlap)
+            probs = predict_sliding(model, image_rgb, device, settings, patch_size, overlap)
 
         gt_flat = gt_bin.ravel().astype(np.int64)
         for t in thresholds:
@@ -131,6 +119,7 @@ def evaluate(image_paths, mask_paths, model, device, mode: str, thresholds, patc
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--checkpoint", default="checkpoints/best_unet.pth")
+    ap.add_argument("--config", default="config/config.yaml")
     ap.add_argument("--images", default="input/DeepCrack/test_img")
     ap.add_argument("--masks", default="input/DeepCrack/test_lab")
     ap.add_argument("--mode", choices=["direct", "sliding", "both"], default="both")
@@ -141,6 +130,7 @@ def main():
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    settings = SystemSettings.load_from_yaml(args.config)
     model, features = load_unet_checkpoint(args.checkpoint, device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Loaded {args.checkpoint} | features={features} "
@@ -156,9 +146,9 @@ def main():
 
     t0 = time.time()
     if args.mode in ("direct", "both"):
-        evaluate(image_paths, mask_paths, model, device, "direct", args.thresholds)
+        evaluate(image_paths, mask_paths, model, device, "direct", args.thresholds, settings)
     if args.mode in ("sliding", "both"):
-        evaluate(image_paths, mask_paths, model, device, "sliding", args.thresholds,
+        evaluate(image_paths, mask_paths, model, device, "sliding", args.thresholds, settings,
                  args.patch_size, args.overlap)
     print(f"\nTotal wall time: {time.time() - t0:.1f}s")
 

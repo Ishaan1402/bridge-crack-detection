@@ -4,6 +4,22 @@ import torch.nn as nn
 import cv2
 from src.config.schema import SystemSettings
 
+# Single source of truth for the ImageNet normalization used in training
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
+def resolve_batch_size(configured: int, device_type: str) -> int:
+    """
+    Interpret the configured batch size (0 = auto).
+
+    Auto picks 1 on CPU (measured fastest for this model) and 8 on CUDA
+    (kernel-launch overhead amortizes). An explicit value is always honored.
+    """
+    if configured in (None, 0):
+        return 8 if device_type == "cuda" else 1
+    return configured
+
 
 class SlidingWindowPredictor:
     """
@@ -28,16 +44,13 @@ class SlidingWindowPredictor:
         self.gaussian_kernel = self._generate_gaussian_kernel(
             self.patch_size, settings.inference.sigma_scale
         )
-        self.batch_size = batch_size or settings.inference.batch_size
-        # Batching pays off on GPUs (kernel-launch overhead) but can hurt
-        # single-image CPU paths; default to 8 on CUDA when not configured.
-        if device.type == "cuda" and self.batch_size == 1:
-            self.batch_size = 8
+        configured = settings.inference.batch_size if batch_size in (None, 0) else batch_size
+        self.batch_size = resolve_batch_size(configured, device.type)
         self.tta = settings.inference.tta if tta is None else tta
 
         # ImageNet normalization params (kept as device tensors for batched ops)
-        self.mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32, device=device).view(1, 3, 1, 1)
-        self.std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32, device=device).view(1, 3, 1, 1)
+        self.mean = torch.tensor(IMAGENET_MEAN, dtype=torch.float32, device=device).view(1, 3, 1, 1)
+        self.std = torch.tensor(IMAGENET_STD, dtype=torch.float32, device=device).view(1, 3, 1, 1)
 
     def _generate_gaussian_kernel(self, size: int, sigma_scale: float) -> np.ndarray:
         """

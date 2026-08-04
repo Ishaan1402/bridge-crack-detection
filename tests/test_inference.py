@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from src.config.schema import SystemSettings, AppSettings, ModelSettings, InferenceSettings, MetricsSettings
-from src.inference.sliding_window import SlidingWindowPredictor
+from src.inference.sliding_window import SlidingWindowPredictor, resolve_batch_size
 from src.models.unet import UNet
 
 class DummySegmentationModel(nn.Module):
@@ -202,3 +202,13 @@ def test_predict_rejects_non_rgb_input(dummy_settings):
     predictor = SlidingWindowPredictor(model, dummy_settings, torch.device("cpu"))
     with pytest.raises(ValueError, match="HxWx3"):
         predictor.predict_large_image(np.ones((128, 128), dtype=np.uint8))
+
+
+def test_resolve_batch_size_auto_and_explicit():
+    """0 = auto (1 on CPU, 8 on CUDA); explicit values are always honored."""
+    assert resolve_batch_size(0, "cpu") == 1
+    assert resolve_batch_size(0, "cuda") == 8
+    assert resolve_batch_size(None, "cpu") == 1
+    assert resolve_batch_size(1, "cuda") == 1
+    assert resolve_batch_size(4, "cpu") == 4
+    assert resolve_batch_size(8, "cpu") == 8

@@ -22,7 +22,7 @@ class InferenceSettings(BaseModel):
     overlap: float = Field(ge=0.0, le=0.9)
     sigma_scale: float = Field(ge=0.05, le=0.5)
     default_threshold: float = Field(ge=0.0, le=1.0)
-    batch_size: int = Field(default=1, ge=1, le=64, description="Patches per forward pass (CPU-friendly default; predictor raises it on CUDA)")
+    batch_size: int = Field(default=0, ge=0, le=64, description="Patches per forward pass (0 = auto: 1 on CPU, 8 on CUDA)")
     tta: bool = Field(default=False, description="Horizontal/vertical flip test-time augmentation")
 
 class MetricsSettings(BaseModel):

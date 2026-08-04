@@ -61,7 +61,6 @@ if detected_features != settings.model.features:
         "Checkpoint uses features %s, config declares %s; serving the checkpoint's architecture.",
         detected_features, settings.model.features,
     )
-model.eval()
 
 predictor = SlidingWindowPredictor(model, settings, device)
 logger.info("Model loaded: %s (features=%s, params=%.1fM)",
