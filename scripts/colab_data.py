@@ -39,15 +39,24 @@ def download_url(url: str, dest: str) -> str:
 
 def _find_image_mask_dirs(root: str) -> tuple[str, str]:
     """Locate the images and masks folders in an unknown dataset layout."""
-    image_dirs = [d for d in glob.glob(os.path.join(root, "**", "*"), recursive=True)
-                  if os.path.isdir(d) and any(t in os.path.basename(d).lower() for t in ("image", "img"))]
-    mask_dirs = [d for d in glob.glob(os.path.join(root, "**", "*"), recursive=True)
-                 if os.path.isdir(d) and any(t in os.path.basename(d).lower() for t in ("mask", "label", "lab", "gt"))]
-    image_dirs = sorted(d for d in image_dirs if len(os.listdir(d)) > 10)
-    mask_dirs = sorted(d for d in mask_dirs if len(os.listdir(d)) > 10)
-    if not image_dirs or not mask_dirs:
-        raise SystemExit(f"Could not locate images/masks folders under {root}")
-    return image_dirs[0], mask_dirs[0]
+    candidates = {
+        "image": [d for d in glob.glob(os.path.join(root, "**", "*"), recursive=True)
+                  if os.path.isdir(d) and any(t in os.path.basename(d).lower() for t in ("image", "img"))],
+        "mask": [d for d in glob.glob(os.path.join(root, "**", "*"), recursive=True)
+                 if os.path.isdir(d) and any(t in os.path.basename(d).lower() for t in ("mask", "label", "lab", "gt"))],
+    }
+
+    def pick(kind: str) -> str:
+        dirs = [d for d in candidates[kind] if len(os.listdir(d)) > 10]
+        if not dirs:
+            raise SystemExit(f"Could not locate {kind} folders under {root}")
+        # Prefer a top-level images/masks dir; otherwise the largest one.
+        top = [d for d in dirs if os.path.dirname(d) == root]
+        dirs = top if top else sorted(dirs, key=lambda d: -len(os.listdir(d)))
+        return dirs[0]
+
+    image_dir, mask_dir = pick("image"), pick("mask")
+    return image_dir, mask_dir
 
 
 def _merge_splits(raw_root: str, out: str, source: str) -> None:
