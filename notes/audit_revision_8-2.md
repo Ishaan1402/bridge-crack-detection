@@ -368,3 +368,13 @@ Implements the approved "Retrain v3 on Google Colab" plan:
 - The staged test split (`{out}/test`) is now the in-distribution eval target
   (`uav_*` files are the UAV Kaggle subset); DeepCrack test remains the
   cross-domain eval. Notebook is 21 cells; suite still 34/34.
+
+## Status 2026-08-04 — unified model comparison
+
+- `scripts/evaluate_models.py` evaluates any set of checkpoints (existing
+  narrow/wide + v3) on the same eval sets with identical thresholds/mode and
+  prints a side-by-side table; `--report` writes a markdown file.
+- Auto-discovers `checkpoints/best_unet.pth`, `~/Downloads/best_unet.pth`,
+  and `checkpoints/unet_v3_{narrow,wide}.pth`; supports `--extra-set` for the
+  staged test split or the real UAV test split later.
+- Tests: 36/36 passing (comparison runner smoke on tiny checkpoints + data).
