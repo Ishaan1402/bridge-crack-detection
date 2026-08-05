@@ -170,7 +170,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--batch-size", type=int, default=0, help="0 = auto from GPU preset")
     ap.add_argument("--resolution", "--resize", dest="resolution", type=int, default=0,
                     help="Square resize; 0 = auto from GPU preset (512)")
-    ap.add_argument("--lr", type=float, default=1e-3)
+    ap.add_argument("--lr", type=float, default=5e-4,
+                    help="Adam LR (HPO winner was 5.5e-4; original notebook used 1e-4; higher LRs collapse to all-background)")
     ap.add_argument("--lr-scheduler", choices=["none", "cosine", "plateau"], default="cosine")
     ap.add_argument("--warmup-epochs", type=int, default=3)
     ap.add_argument("--ema", type=float, default=0.999, help="EMA decay (0 disables)")
@@ -312,6 +313,13 @@ def main(argv: list[str] | None = None) -> None:
             f"| IoU={g['iou']:.4f} | Rec={g['recall']:.4f} | Prec={g['precision']:.4f} "
             f"| {time.time()-t0:.1f}s"
         )
+
+        if epoch >= 3 and g["recall"] == 0.0:
+            print(
+                "  WARNING: global recall is 0 — the model is predicting no cracks. "
+                "This is usually a collapsed all-background optimum: stop and rerun "
+                "with a lower --lr (e.g. 1e-4) and/or higher --bce-weight (e.g. 0.7)."
+            )
 
         if scheduler is not None and args.lr_scheduler == "plateau" and epoch >= args.warmup_epochs:
             scheduler.step(macro_dice)
