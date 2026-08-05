@@ -25,7 +25,7 @@ def test_flag_results_known_bad_and_clean():
         _pair("merged11k_CRACK500_20160326_150319_361_641", dice=0.0, pred_area=0.03, gt_mean=0.05),
         _pair("merged11k_DeepCrack_IMG6-1", dice=0.0, pred_area=0.02, gt_mean=0.04),
         _pair("uav_something", dice=0.8, pred_area=0.03, gt_mean=0.02),      # healthy
-        _pair("merged11k_CFD_x", dice=0.0, pred_area=0.0001, gt_mean=0.04),  # pred too small -> keep
+        _pair("merged11k_CFD_x", dice=0.0, pred_area=0.00005, gt_mean=0.04),  # pred too small -> keep
         _pair("merged11k_GAPS384_y", dice=0.0, pred_area=0.04, gt_mean=0.0), # empty GT -> keep
     ]
 
@@ -38,6 +38,17 @@ def test_flag_results_known_bad_and_clean():
     assert "merged11k_CFD_x" not in flagged_stems
     assert "merged11k_GAPS384_y" not in flagged_stems
     assert len(kept) == 3
+
+
+def test_low_prediction_floor_still_flags_known_bad():
+    """The known-bad DeepCrack case predicts only a small region; a lower
+    floor must still catch it (dice=0 + any non-trivial prediction + GT content)."""
+    pairs = [
+        _pair("merged11k_DeepCrack_IMG6-1", dice=0.0, pred_area=0.0003, gt_mean=0.04),
+        _pair("uav_clean", dice=0.8, pred_area=0.0003, gt_mean=0.02),
+    ]
+    flagged, _ = flag_bad_pairs.flag_results(pairs)
+    assert "merged11k_DeepCrack_IMG6-1" in {p["stem"] for p in flagged}
 
 
 def test_src_stats_with_and_without_flags():

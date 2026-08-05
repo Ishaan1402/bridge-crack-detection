@@ -62,7 +62,7 @@ def _src_stats(pairs: list[dict]) -> dict:
 
 
 def flag_results(pairs: list[dict], dice_max: float = 0.01,
-                 pred_min: float = 0.001, gt_min: float = 0.0) -> tuple[list[dict], list[dict]]:
+                 pred_min: float = 0.0001, gt_min: float = 0.0) -> tuple[list[dict], list[dict]]:
     """
     Return (flagged, kept) pairs.
 
@@ -87,7 +87,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--masks", required=True)
     ap.add_argument("--threshold", type=float, default=0.5)
     ap.add_argument("--dice-max", type=float, default=0.01, help="Flag if dice below this")
-    ap.add_argument("--pred-min", type=float, default=0.001, help="Flag only if predicted area >= this fraction")
+    ap.add_argument("--pred-min", type=float, default=0.0001,
+                    help="Flag only if predicted area >= this fraction (0.01% of pixels)")
     ap.add_argument("--gt-min", type=float, default=0.0, help="Flag only if GT content >= this fraction")
     ap.add_argument("--panels", default=None, help="Save original | GT | prediction panels for flagged pairs")
     ap.add_argument("--limit", type=int, default=0, help="Cap images scanned (0 = all)")
