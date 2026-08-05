@@ -105,10 +105,10 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -
 def _build_augmentation(aug: str, resize: int):
     """Training transforms. 'strong' adds rotation/scale/shift, noise, elastic."""
     if aug == "strong":
-        # albumentations 2.x: GaussNoise uses std_range, normalized to [0, 1]
-        try:
+        # albumentations 2.x renamed var_limit -> std_range (normalized 0-1)
+        if int(A.__version__.split(".")[0]) >= 2:
             gauss_noise = A.GaussNoise(std_range=(0.01, 0.03), p=0.3)
-        except (ValueError, TypeError):
+        else:
             gauss_noise = A.GaussNoise(var_limit=(10.0, 40.0), p=0.3)
         base = [
             A.Rotate(limit=30, border_mode=cv2.BORDER_REFLECT_101, p=0.5),
