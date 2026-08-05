@@ -105,6 +105,11 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device) -
 def _build_augmentation(aug: str, resize: int):
     """Training transforms. 'strong' adds rotation/scale/shift, noise, elastic."""
     if aug == "strong":
+        # albumentations 2.x renamed GaussNoise's var_limit -> std_range
+        try:
+            gauss_noise = A.GaussNoise(std_range=(10.0, 40.0), p=0.3)
+        except (ValueError, TypeError):
+            gauss_noise = A.GaussNoise(var_limit=(10.0, 40.0), p=0.3)
         base = [
             A.Rotate(limit=30, border_mode=cv2.BORDER_REFLECT_101, p=0.5),
             A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.15, rotate_limit=20,
@@ -112,8 +117,8 @@ def _build_augmentation(aug: str, resize: int):
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
             A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
-            A.GaussNoise(var_limit=(10.0, 40.0), p=0.3),
-            A.ElasticTransform(alpha=1.0, sigma=0.1, p=0.2),
+            gauss_noise,
+            A.ElasticTransform(alpha=1.0, sigma=1.0, p=0.2),  # sigma >= 1 in albumentations 2.x
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             ToTensorV2(),
         ]
@@ -212,7 +217,11 @@ def main(argv: list[str] | None = None) -> None:
 
     criterion = BCEDiceLoss(bce_weight=args.bce_weight, aux_weight=args.aux_weight)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp and device.type == "cuda")
+    amp_scaler = getattr(torch.amp, "GradScaler", None)
+    if amp_scaler is not None:
+        scaler = amp_scaler("cuda", enabled=use_amp and device.type == "cuda")
+    else:
+        scaler = torch.cuda.amp.GradScaler(enabled=use_amp and device.type == "cuda")
 
     scheduler = None
     if args.lr_scheduler == "plateau":

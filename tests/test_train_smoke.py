@@ -35,7 +35,7 @@ def test_train_smoke(tmp_path):
         "--data-dir", str(data_dir), "--out", str(out),
         "--epochs", "1", "--batch-size", "2", "--lr", "1e-3",
         "--resize", "64", "--features", "8,16", "--seed", "0",
-        "--amp",
+        "--amp", "--aug", "strong",
     ])
 
     assert out.exists()
