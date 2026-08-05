@@ -174,7 +174,9 @@ def main(argv: list[str] | None = None) -> None:
                     help="Adam LR (HPO winner was 5.5e-4; original notebook used 1e-4; higher LRs collapse to all-background)")
     ap.add_argument("--lr-scheduler", choices=["none", "cosine", "plateau"], default="cosine")
     ap.add_argument("--warmup-epochs", type=int, default=3)
-    ap.add_argument("--ema", type=float, default=0.999, help="EMA decay (0 disables)")
+    ap.add_argument("--ema", type=float, default=0.999,
+                    help="EMA decay (0 disables); a final EMA snapshot is saved as <out>.ema.pth, "
+                         "while the best checkpoint is always the raw model")
     ap.add_argument("--max-grad-norm", type=float, default=1.0, help="0 disables clipping")
     ap.add_argument("--early-stop", type=int, default=5, help="Patience on val macro-Dice (0 disables)")
     ap.add_argument("--aug", choices=["standard", "strong"], default="standard")
@@ -244,6 +246,12 @@ def main(argv: list[str] | None = None) -> None:
             group["lr"] = args.lr * factor
 
     train_loader, val_loader = _build_loaders(args.data_dir, batch_size, resolution, args.aug, device)
+    sanity_imgs, sanity_masks = next(iter(train_loader))
+    sanity_ratio = _mask_permute(sanity_masks).mean().item()
+    print(f"Sanity: first train batch crack ratio = {sanity_ratio:.4f}")
+    if sanity_ratio < 1e-4:
+        print("  WARNING: (almost) no crack pixels in the first batch — check that masks align with images.")
+
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Device: {device} ({gpu_name or 'cpu'}) | resolution={resolution} | batch={batch_size} "
           f"| amp={use_amp} | features={features} | se={args.se} | dropout={args.dropout} "
@@ -253,23 +261,8 @@ def main(argv: list[str] | None = None) -> None:
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
 
-    # EMA bookkeeping
+    # EMA bookkeeping (final artifact only; epoch metrics/best use the raw model)
     ema_state = None
-    if args.ema > 0:
-        ema_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
-
-    def evaluate_with_ema():
-        if ema_state is None:
-            return evaluate(model, val_loader, device)
-        saved = model.state_dict()
-        model.load_state_dict(ema_state)
-        try:
-            return evaluate(model, val_loader, device)
-        finally:
-            model.load_state_dict(saved)
-
-    def save_checkpoint() -> None:
-        torch.save(ema_state or model.state_dict(), args.out)
 
     best_dice = -1.0
     no_improve = 0
@@ -297,13 +290,17 @@ def main(argv: list[str] | None = None) -> None:
             train_loss += loss.item()
 
         if args.ema > 0:
-            for k, v in model.state_dict().items():
-                if v.is_floating_point():
-                    ema_state[k].mul_(args.ema).add_(v.detach(), alpha=1 - args.ema)
-                else:
-                    ema_state[k].copy_(v.detach())
+            if ema_state is None:
+                # Start EMA from the first trained state, not the random init
+                ema_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            else:
+                for k, v in model.state_dict().items():
+                    if v.is_floating_point():
+                        ema_state[k].mul_(args.ema).add_(v.detach(), alpha=1 - args.ema)
+                    else:
+                        ema_state[k].copy_(v.detach())
 
-        val_metrics = evaluate_with_ema()
+        val_metrics = evaluate(model, val_loader, device)
         macro_dice = val_metrics["macro"]["dice"]
         g = val_metrics["global"]
         lr_now = optimizer.param_groups[0]["lr"]
@@ -327,13 +324,25 @@ def main(argv: list[str] | None = None) -> None:
         if macro_dice > best_dice + 1e-4:
             best_dice = macro_dice
             no_improve = 0
-            save_checkpoint()
+            torch.save(model.state_dict(), args.out)
             print(f"  -> new best, saved to {args.out}")
         else:
             no_improve += 1
             if args.early_stop and no_improve >= args.early_stop:
                 print(f"Early stopping (no val improvement for {args.early_stop} epochs).")
                 break
+
+    if args.ema > 0 and ema_state is not None:
+        ema_path = os.path.splitext(args.out)[0] + ".ema.pth"
+        torch.save(ema_state, ema_path)
+        saved = model.state_dict()
+        model.load_state_dict(ema_state)
+        ema_metrics = evaluate(model, val_loader, device)
+        model.load_state_dict(saved)
+        print(
+            f"EMA snapshot saved to {ema_path} "
+            f"(val Dice {ema_metrics['macro']['dice']:.4f} macro / {ema_metrics['global']['dice']:.4f} global)"
+        )
 
     print(f"Done. Best val macro Dice: {best_dice:.4f} -> {args.out}")
 
