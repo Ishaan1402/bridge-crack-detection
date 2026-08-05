@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import torch
 
 from src.config.schema import SystemSettings
-from src.models.unet import UNet
+from src.models.checkpoint import load_unet_checkpoint
 from src.inference.sliding_window import SlidingWindowPredictor
 
 def run_sweep(args):
@@ -19,12 +19,7 @@ def run_sweep(args):
     settings = SystemSettings.load_from_yaml(args.config)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 2. Instantiate and compile model
-    model = UNet(
-        in_channels=settings.model.in_channels,
-        out_channels=settings.model.out_channels,
-        features=settings.model.features
-    )
+    # 2. Load checkpoint (auto-detects width, legacy keys, SE/deep supervision)
     checkpoint_path = args.checkpoint if args.checkpoint else settings.model.checkpoint_path
 
     if not os.path.exists(checkpoint_path):
@@ -33,7 +28,7 @@ def run_sweep(args):
             "Suggest running `python scripts/download_checkpoint.py` first."
         )
 
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    model, _ = load_unet_checkpoint(checkpoint_path, device)
     predictor = SlidingWindowPredictor(model, settings, device)
 
     # 3. Gather annotation files (e.g. under split data partitions)
