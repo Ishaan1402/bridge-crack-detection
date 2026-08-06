@@ -44,18 +44,51 @@ UAV bridge imagery is typically full of high contrast structure that isn’t str
 
 crack-seg uses pixel-level U-Net segmentation so the model can use neighboring context rather than classifying each patch from local texture alone. Dense masks support metrics such as cracked-area ratio and density maps which cannot be obtained from bounding boxes or per-patch labels alone.
 
-Initial results are on a holdout set of 48 images comparing against a patch-RF baseline. Ongoing work adds DeepLabV3+ and cross-dataset evaluation on DeepCrack to improve performance and generalization.
+**Training:** the current pipeline is [edu/train_v3.ipynb](edu/train_v3.ipynb) — multi-source data staging (UAV Kaggle + DeepCrack + UAV 11k), training the upgraded U-Net (SE blocks, bottleneck dropout, deep supervision, AMP/cosine/EMA), and evaluation on the staged test split plus the held-out DeepCrack test. The same scheme runs outside Colab via `scripts/train.py`.
 
-**Results (test set, 48 images, 448×448):**
+**Evaluation:** `scripts/verify_metrics.py` reports global + per-image Dice/IoU/Recall/Precision at any threshold; published model-card numbers are generated with it.
 
+---
 
-| Model                          | Recall    | Precision | Dice     | IoU      |
-| ------------------------------ | --------- | --------- | -------- | -------- |
-| [Baseline](edu/baseline.ipynb) | 0.78      | 0.073     | 0.13     | 0.07     |
-| [U-Net](src/models/unet.py)    | **0.823** | **0.586** | **0.68** | **0.52** |
+## Model & Results
 
+### Checkpoints
 
-The Random Forest baseline is noisy and is notoriously prone to false positives due to the gridded nature of it's inference (7.3% precision). U-Net is the usable model (+5× Dice/F1 vs baseline).
+| File | Architecture | Notes |
+| --- | --- | --- |
+| `unet_v3.pth` | U-Net `[32,64,128,256]` + SE blocks + deep supervision | **Recommended.** Trained 2026-08 on multiple data sources (UAV Kaggle + DeepCrack train + merged crack sources), 512px, BCE+Dice, Adam 5e-4 + cosine, EMA. |
+| `unet_narrow_v2.pth` | U-Net `[32,64,128,256]` | Tuned via internal hyperparameter optimization tool: [Pathfinder](https://github.com/Ishaan1402/pathfinder) |
+| `unet_wide_v1.pth` | U-Net `[64,128,256,512]` | Original notebook model (4× params). |
+
+All checkpoints load through the same code path — the loader (`src/models/checkpoint.py`) auto-detects channel widths, legacy key naming, SE/deep-supervision heads, and upsample mode.
+
+### Metrics (threshold 0.5, direct full-image inference)
+
+**Held-out staged test split (447 pairs)**
+
+| Model | Dice | IoU | Recall | Precision |
+| --- | --- | --- | --- | --- |
+| **v3** | **0.730** | 0.575 | 0.739 | 0.721 |
+| narrow-v2 | 0.310 | 0.183 | 0.200 | 0.690 |
+| wide-v1 | 0.339 | 0.204 | 0.231 | 0.634 |
+
+The staged test split is the clean in-distribution held-out benchmark (only the val split is used for checkpoint selection). The old models were trained on UAV-only data, which is why they drop sharply here.
+
+**DeepCrack test set (237 images)**
+
+| Model | Dice | IoU | Recall | Precision |
+| --- | --- | --- | --- | --- |
+| **v3** | **0.866** | **0.764** | **0.867** | **0.866** |
+| narrow-v2 | 0.720 | 0.562 | 0.656 | 0.797 |
+| wide-v1 | 0.775 | 0.633 | 0.727 | 0.830 |
+
+⚠️ DeepCrack *train* was part of v3's training data, so the DeepCrack test number is held-out but **in-distribution**, not cross-domain. The staged test split above is the harder held-out benchmark.
+
+### Training (v3)
+
+Data: UAV Kaggle (fresh random 70/15/15 split), DeepCrack train (300), and a capped subset of a merged 11.2k crack dataset (CRACK500, CFD, GAPS384, Rissbilder, Volker, Sylvie, forest, cracktree200, noncrack), all resized to 512×512 with binary masks and ImageNet normalization.
+
+Model: narrow U-Net + squeeze-and-excitation, bottleneck dropout 0.1, deep supervision, 512px, BCE+Dice (aux-weighted), Adam lr 5e-4 with 3-epoch warmup + cosine decay, EMA, AMP, 30 epochs, best-by-val-Dice. Validation Dice ≈ 0.73 global / 0.66 macro at completion.
 
 ---
 
@@ -64,9 +97,14 @@ The Random Forest baseline is noisy and is notoriously prone to false positives 
 ```text
 crack-seg/
 ├── config/              # YAML configs
+├── edu/                 # Training notebook (train_v3.ipynb)
 ├── scripts/             # Developer CLI tools
+│   ├── train.py              # Training scheme (also used by the notebook)
+│   ├── prepare_dataset.py    # Dataset -> train/val/test layout
+│   ├── colab_data.py         # Download/stage helpers for train_v3.ipynb
+│   ├── verify_metrics.py     # Checkpoint evaluation harness
 │   ├── download_checkpoint.py # Model fetcher
-│   └── threshold_sweep.py     # Hyperparameter tuning tool evaluating Precision-Recall curves
+│   └── threshold_sweep.py    # Precision-Recall threshold sweep
 ├── src/                 
 │   ├── config/          # Pydantic schema validation
 │   ├── dataset/         # PyTorch dataset & Albumentations transforms
@@ -88,7 +126,7 @@ High-resolution drone photos cannot fit in the model all at once, so we seperate
 
 - Default patch size is 448×448 with 50% overlap (each step moves 224px).
 - Overlapping regions are averaged together. Patches near the center of each square are weighted more than edges in order to remove the seam lines between tiles.
-- Photos smaller than the configured patch size are padded, run through the model, then cropped back to the original size, though this is not recommended. The top and left borders sit on the patch edge where predictions are naturally downweighted, and padding on the right and bottom adds fake content that will skew detections on these sides.
+- Images at or below the patch size take a single full-image forward pass (the model is fully convolutional) — faster and free of padded-border artifacts.
 
 ### 2. Crack Density Heatmaps (`src/metrics/`)
 
