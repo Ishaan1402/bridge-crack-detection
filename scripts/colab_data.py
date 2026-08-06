@@ -1,0 +1,251 @@
+"""
+Download + stage helpers for the v3 Colab retraining notebook (edu/train_v3.ipynb).
+
+Every source is normalized into the project's `{split}/images|masks` layout
+with a per-source tag via scripts/prepare_dataset.py, so the trainer never
+sees anything other than one consistent format.
+"""
+
+from __future__ import annotations
+
+import glob
+import json
+import os
+import shutil
+import stat
+import urllib.request
+import zipfile
+
+
+DEEPCRACK_ZIP_URL = "https://raw.githubusercontent.com/yhlleo/DeepCrack/master/dataset/DeepCrack.zip"
+UAV11K_DRIVE_ID = "1RMf0GYXn7Mq1s9STGFG5iByavTr05SjF"
+MERGED11K_DRIVE_ID = "1xrOqv0-3uMHjZyEUrerOYiYXW_E8SUMP"
+UAV_KAGGLE_DATASET = "ziya07/uav-based-crack-detection-dataset"
+
+
+def unzip(zip_path: str, dest: str) -> None:
+    os.makedirs(dest, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(dest)
+    print(f"Unzipped {zip_path} -> {dest}")
+
+
+def download_url(url: str, dest: str) -> str:
+    print(f"Downloading {url}")
+    urllib.request.urlretrieve(url, dest)
+    print(f"Saved {dest} ({os.path.getsize(dest)/1e6:.1f} MB)")
+    return dest
+
+
+def _find_image_mask_dirs(root: str) -> tuple[str, str]:
+    """Locate the images and masks folders in an unknown dataset layout."""
+    candidates = {
+        "image": [d for d in glob.glob(os.path.join(root, "**", "*"), recursive=True)
+                  if os.path.isdir(d) and any(t in os.path.basename(d).lower() for t in ("image", "img"))],
+        "mask": [d for d in glob.glob(os.path.join(root, "**", "*"), recursive=True)
+                 if os.path.isdir(d) and any(t in os.path.basename(d).lower() for t in ("mask", "label", "lab", "gt"))],
+    }
+
+    def pick(kind: str) -> str:
+        dirs = [d for d in candidates[kind] if len(os.listdir(d)) > 10]
+        if not dirs:
+            raise SystemExit(f"Could not locate {kind} folders under {root}")
+        # Prefer a top-level images/masks dir; otherwise the largest one.
+        top = [d for d in dirs if os.path.dirname(d) == root]
+        dirs = top if top else sorted(dirs, key=lambda d: -len(os.listdir(d)))
+        return dirs[0]
+
+    image_dir, mask_dir = pick("image"), pick("mask")
+    return image_dir, mask_dir
+
+
+def _merge_splits(raw_root: str, out: str, source: str) -> None:
+    """Copy an already-split source ({split}/{images,masks}) into the merged layout."""
+    for split in ("train", "val", "test"):
+        src_img = os.path.join(raw_root, split, "images")
+        src_msk = os.path.join(raw_root, split, "masks")
+        if not (os.path.isdir(src_img) and os.path.isdir(src_msk)):
+            continue
+        dst_img = os.path.join(out, split, "images")
+        dst_msk = os.path.join(out, split, "masks")
+        os.makedirs(dst_img, exist_ok=True)
+        os.makedirs(dst_msk, exist_ok=True)
+        for name in sorted(os.listdir(src_img)):
+            stem = f"{source}_{os.path.splitext(name)[0]}"
+            shutil.copy(os.path.join(src_img, name), os.path.join(dst_img, stem + ".jpg"))
+        for name in sorted(os.listdir(src_msk)):
+            stem = f"{source}_{os.path.splitext(name)[0]}"
+            shutil.copy(os.path.join(src_msk, name), os.path.join(dst_msk, stem + ".png"))
+    print(f"Merged {source} (pre-split) into {out}")
+
+
+def write_kaggle_credentials(username: str, key: str) -> None:
+    """Write username/key into ~/.kaggle/kaggle.json and export env vars."""
+    kaggle_dir = os.path.join(os.path.expanduser("~"), ".kaggle")
+    os.makedirs(kaggle_dir, exist_ok=True)
+    cred_path = os.path.join(kaggle_dir, "kaggle.json")
+    with open(cred_path, "w") as f:
+        json.dump({"username": username, "key": key}, f)
+    os.chmod(cred_path, stat.S_IRUSR | stat.S_IWUSR)
+    os.environ["KAGGLE_USERNAME"] = str(username)
+    os.environ["KAGGLE_KEY"] = str(key)
+
+
+def setup_kaggle_credentials(kaggle_json_path: str) -> bool:
+    """
+    Install MyDrive/kaggle.json for kagglehub.
+
+    Returns True on success. Get the file from Kaggle -> Settings -> API ->
+    Create New Token, then upload it to MyDrive.
+    """
+    if not os.path.exists(kaggle_json_path):
+        return False
+    try:
+        with open(kaggle_json_path) as f:
+            creds = json.load(f)
+        write_kaggle_credentials(creds.get("username", ""), creds.get("key", ""))
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def download_uav(drive_zip: str | None, data_root: str, out: str) -> str:
+    """
+    Stage the UAV Kaggle source.
+
+    Primary: kagglehub download with a fresh stratified 70/15/15 split
+    (Kaggle credentials required — see setup_kaggle_credentials). Optional
+    override: the project's dataset_split.zip on Drive, which keeps the
+    original 220/47/48 split.
+    """
+    if drive_zip and os.path.exists(drive_zip):
+        raw = os.path.join(data_root, "uav_raw")
+        unzip(drive_zip, raw)
+        base = next(
+            (c for c in (raw, os.path.join(raw, "dataset_split"))
+             if os.path.isdir(os.path.join(c, "train"))),
+            raw,
+        )
+        _merge_splits(base, out, "uav")
+        return "drive"
+
+    try:
+        import kagglehub
+        path = kagglehub.dataset_download(UAV_KAGGLE_DATASET)
+    except Exception as exc:
+        raise RuntimeError(
+            "Kaggle download failed. Upload kaggle.json to MyDrive and run the "
+            "'Kaggle credentials' cell, or re-upload dataset_split.zip to "
+            "MyDrive/bridge_crack_detection/ to keep the original split."
+        ) from exc
+    images, masks = _find_image_mask_dirs(path)
+    stage(images, masks, out, source="uav", cap=0, resize=512,
+          val_frac=0.15, test_frac=0.15, seed=42)
+    return "kaggle"
+
+
+def download_deepcrack(data_root: str) -> tuple[str, str, str, str]:
+    """Returns (train_img, train_lab, test_img, test_lab) dirs."""
+    zip_path = os.path.join(data_root, "deepcrack.zip")
+    raw = os.path.join(data_root, "deepcrack_raw")
+    if not os.path.exists(os.path.join(raw, "train_img")):
+        download_url(DEEPCRACK_ZIP_URL, zip_path)
+        unzip(zip_path, raw)
+    return (
+        os.path.join(raw, "train_img"),
+        os.path.join(raw, "train_lab"),
+        os.path.join(raw, "test_img"),
+        os.path.join(raw, "test_lab"),
+    )
+
+
+def download_uav11k(data_root: str, max_retries: int = 3) -> tuple[str, str]:
+    """
+    Returns (images_dir, masks_dir) for the Auto-ROS-LAB UAV 11k dataset.
+
+    Uses a pre-downloaded zip at {data_root}/uav11k.zip if present (e.g.
+    grabbed from a browser when Drive stops rate-limiting), otherwise tries
+    gdown with retries.
+    """
+    zip_path = os.path.join(data_root, "uav11k.zip")
+    raw = os.path.join(data_root, "uav11k_raw")
+    extracted = any(glob.glob(os.path.join(raw, "**", "image*"), recursive=True))
+    if not extracted:
+        if os.path.exists(zip_path):
+            print(f"Using pre-downloaded {zip_path}")
+        else:
+            import time
+            import gdown
+            last_error = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    gdown.download(id=UAV11K_DRIVE_ID, output=zip_path, quiet=False, fuzzy=True)
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    print(f"gdown attempt {attempt}/{max_retries} failed: {exc}")
+                    if attempt < max_retries:
+                        time.sleep(10 * attempt)
+            else:
+                raise RuntimeError(
+                    "Could not download the UAV 11k dataset — Google Drive is "
+                    "rate-limiting the author's file. Options: set SKIP_UAV11K = "
+                    "True in the notebook, or download the file manually in a "
+                    "browser and save it as {zip_path}, then rerun."
+                ) from last_error
+        unzip(zip_path, raw)
+    return _find_image_mask_dirs(raw)
+
+
+def download_merged11k(data_root: str, max_retries: int = 3) -> tuple[str, str]:
+    """
+    Returns (images_dir, masks_dir) for the merged 11.2k crack dataset
+    (12 public datasets, all 448x448, images/ + masks/ folders).
+    """
+    zip_path = os.path.join(data_root, "crack11k.zip")
+    raw = os.path.join(data_root, "crack11k_raw")
+    extracted = any(glob.glob(os.path.join(raw, "**", "*"), recursive=True)) and os.path.isdir(raw)
+    if not extracted:
+        if os.path.exists(zip_path):
+            print(f"Using pre-downloaded {zip_path}")
+        else:
+            import time
+            import gdown
+            last_error = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    gdown.download(id=MERGED11K_DRIVE_ID, output=zip_path, quiet=False, fuzzy=True)
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    print(f"gdown attempt {attempt}/{max_retries} failed: {exc}")
+                    if attempt < max_retries:
+                        time.sleep(10 * attempt)
+            else:
+                raise RuntimeError(
+                    "Could not download the merged 11.2k dataset either. "
+                    "Set SKIP_BIG_SOURCE = True to continue with UAV Kaggle + DeepCrack."
+                ) from last_error
+        unzip(zip_path, raw)
+    return _find_image_mask_dirs(raw)
+
+
+def stage(images_dir: str, masks_dir: str, out: str, source: str, cap: int,
+          resize: int, val_frac: float, test_frac: float, seed: int = 42,
+          drop_prefix: str | None = None) -> None:
+    """Convert one source into the merged dataset_split layout via prepare_dataset."""
+    from scripts.prepare_dataset import main as prepare
+    args = [
+        "--images", images_dir,
+        "--masks", masks_dir,
+        "--out", out,
+        "--source", source,
+        "--cap", str(cap),
+        "--resize", str(resize),
+        "--val-frac", str(val_frac),
+        "--test-frac", str(test_frac),
+        "--seed", str(seed),
+    ]
+    if drop_prefix:
+        args += ["--drop-prefix", drop_prefix]
+    prepare(args)

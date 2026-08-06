@@ -5,3 +5,8 @@
 __pycache__/
 checkpoints/
 *.pth
+things_to_fix.md
+# local notes (kept out of the public repo)
+notes/
+# datasets (large, reproducible from upstream sources)
+input/DeepCrack/

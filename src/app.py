@@ -1,17 +1,25 @@
-import io
+import logging
 import time
 import numpy as np
 import cv2
 import os
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException, status
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field, ValidationError
 import torch
 
 from src.config.schema import SystemSettings
-from src.models.unet import UNet
+from src.models.checkpoint import load_unet_checkpoint
 from src.inference.sliding_window import SlidingWindowPredictor
+from src.utils.device import select_device
 from src.utils.visualizations import create_visual_overlay
+
+logger = logging.getLogger("crack_seg")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 # Config and hardware
 CONFIG_PATH = "config/config.yaml"
@@ -19,37 +27,44 @@ if not os.path.exists(CONFIG_PATH):
     CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
 
 settings = SystemSettings.load_from_yaml(CONFIG_PATH)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Initialize and cache U-Net checkpoint for server
-model = UNet(
-    in_channels=settings.model.in_channels,
-    out_channels=settings.model.out_channels,
-    features=settings.model.features
-)
+device = select_device()
+logger.info("Using device: %s", device)
 
 # Check for missing weight files
 checkpoint_path = settings.model.checkpoint_path
 if not os.path.exists(checkpoint_path):
-    # Download if missing from directory
-    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+    # Download from Hugging Face if missing
+    weight_dir = os.path.dirname(checkpoint_path)
+    if weight_dir:
+        os.makedirs(weight_dir, exist_ok=True)
     try:
         from huggingface_hub import hf_hub_download
-        print(f"Weights missing. Automatically downloading from {settings.model.hf_repo_id}...")
+        logger.info("Weights missing; downloading from %s", settings.model.hf_repo_id)
         hf_hub_download(
             repo_id=settings.model.hf_repo_id,
             filename=settings.model.hf_filename,
-            local_dir=os.path.dirname(checkpoint_path),
+            local_dir=weight_dir,
             local_dir_use_symlinks=False
         )
     except Exception as d_err:
-        print(f"Warning: Automatic download failed ({d_err}). Server will start but might fail model load.")
+        raise RuntimeError(
+            f"Failed to download model weights from {settings.model.hf_repo_id}: {d_err}"
+        ) from d_err
 
-if os.path.exists(checkpoint_path):
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
-model.eval()
+if not os.path.exists(checkpoint_path):
+    raise FileNotFoundError(f"Model checkpoint not found: {checkpoint_path}")
+
+# Load weights, auto-detecting the checkpoint's channel widths and legacy key naming
+model, detected_features = load_unet_checkpoint(checkpoint_path, device)
+if detected_features != settings.model.features:
+    logger.warning(
+        "Checkpoint uses features %s, config declares %s; serving the checkpoint's architecture.",
+        detected_features, settings.model.features,
+    )
 
 predictor = SlidingWindowPredictor(model, settings, device)
+logger.info("Model loaded: %s (features=%s, params=%.1fM)",
+            checkpoint_path, detected_features, sum(p.numel() for p in model.parameters()) / 1e6)
 app = FastAPI(title="Bridge Surface Crack Segmenter", version="1.0.0")
 
 
@@ -71,7 +86,10 @@ def health_check():
         "status": "ready" if weights_ready else "partial",
         "device": str(device),
         "model_loaded": checkpoint_path,
-        "weights_present": weights_ready
+        "weights_present": weights_ready,
+        "features": detected_features,
+        "tta": settings.inference.tta,
+        "batch_size": predictor.batch_size,
     }
 
 
@@ -80,6 +98,7 @@ async def predict(
     file: UploadFile = File(...),
     threshold: float = Query(None, ge=0.0, le=1.0, description="Segmentation confidence threshold"),
     overlap: float = Query(None, ge=0.0, le=0.9, description="Patch stride ratio"),
+    tta: bool = Query(None, description="Test-time augmentation (flip averaging); default from config"),
     overlay_type: str = Query("mask", pattern="^(mask|heatmap|both)$", description="Visual response output")
 ):
     """
@@ -99,7 +118,7 @@ async def predict(
     file_size_mb = len(contents) / (1024 * 1024)
     if file_size_mb > 50.0:
         raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"Image file size limit exceeded (max 50MB, received: {file_size_mb:.2f}MB)"
         )
 
@@ -122,7 +141,7 @@ async def predict(
             channels=c,
             file_size_mb=file_size_mb
         )
-    except Exception as validation_err:
+    except ValidationError as validation_err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Image does not comply with safety limits: {str(validation_err)}"
@@ -131,17 +150,20 @@ async def predict(
     # Convert BGR (from OpenCV) to RGB
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
-    # Execute inference
+    # Execute inference off the event loop (CPU-bound work in a thread pool)
     t_start = time.perf_counter()
-    _, b_mask, car = predictor.predict_large_image(image_rgb, threshold, overlap)
+    _, b_mask, car = await run_in_threadpool(
+        predictor.predict_large_image, image_rgb, threshold, overlap, tta
+    )
     t_inference_ms = (time.perf_counter() - t_start) * 1000.0
 
     # Overlay representations
-    output_image = create_visual_overlay(image_bgr, b_mask, overlay_type, settings)
+    output_image = await run_in_threadpool(
+        create_visual_overlay, image_bgr, b_mask, overlay_type, settings
+    )
 
-    # Re-encode numpy matrix to JPEG byte stream
+    # Re-encode numpy matrix to JPEG bytes
     _, im_encoded = cv2.imencode(".jpg", output_image, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-    stream = io.BytesIO(im_encoded.tobytes())
 
     # Response metadata headers
     headers = {
@@ -153,4 +175,4 @@ async def predict(
         "Access-Control-Expose-Headers": "X-Crack-Area-Ratio, X-Crack-Detected, X-Image-Resolution-Width, X-Image-Resolution-Height, X-Inference-Time-Ms"
     }
 
-    return StreamingResponse(stream, media_type="image/jpeg", headers=headers)
+    return Response(content=im_encoded.tobytes(), media_type="image/jpeg", headers=headers)

@@ -10,13 +10,20 @@ model:
   hf_filename: "best_unet.pth"
   in_channels: 3
   out_channels: 1
-  features: [64, 128, 256, 512]
+  # Published weights are the "narrow" HPO variant; the loader auto-detects
+  # this from the checkpoint and remaps legacy key names, so this list is
+  # informational only.
+  features: [32, 64, 128, 256]
 
 inference:
   patch_size: 448
   overlap: 0.5
   sigma_scale: 0.125
   default_threshold: 0.5
+  # 0 = auto: 1 on CPU (measured fastest for this model), 8 on CUDA.
+  # Set an explicit value to force it.
+  batch_size: 0
+  tta: false
 
 metrics:
   density_cell_size: 64
